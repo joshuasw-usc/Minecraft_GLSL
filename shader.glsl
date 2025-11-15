@@ -35,6 +35,10 @@ struct Cube
     vec4 color;
 };
 
+ //Yellow directional light
+DirectionalLight sun = DirectionalLight(vec3(1.0, -1.0, 1.0), vec4(1.0, 0.9, .3, 1.0)*.5);
+   
+
 
 //based on wiki slab method: https://en.wikipedia.org/wiki/Slab_method
 float intersect_cube(in Ray ray, in Cube cube)
@@ -84,7 +88,7 @@ vec3 normal_cube(in vec3 point, in Cube cube)
 }
 
 
-//samples 3d noise volume 
+//samples 2d noise volume 
 vec4 rgb_cube(in vec3 point, in Cube cube)
 {
     //map to [-.5, .5] range
@@ -104,34 +108,68 @@ vec4 rgb_cube(in vec3 point, in Cube cube)
     }
 }
 
-
-// Profs. intersect function: https://www.shadertoy.com/view/ttV3Rt
-float intersect_sphere(in Ray ray, in Sphere sphere) {
-	// Sphere center to ray origin
-	vec3 co = ray.pos - sphere.center;
-
-	// The discriminant is negative for a miss, or a postive value
-	// used to calcluate the distance from the ray origin to point of intersection
-    //bear in mind that there may be more than one solution
-	float discriminant = dot(co, ray.dir) * dot(co, ray.dir)
-			- (dot(co, co) - sphere.radius * sphere.radius);
-
-	// If answer is not negative, get ray intersection depth
-	if (discriminant >= 0.0)
-		return -dot(ray.dir, co) - sqrt(discriminant);
-	else
-		return -1.; // Any negative number to indicate no intersect
-}
-
-
 vec3 point_from_depth( in Ray ray, in float depth)
 {
     return ray.pos + ray.dir * depth;
 }
 
-vec3 normal_sphere( in vec3 point, in Sphere sphere)
+vec4 sky()
 {
-    return normalize(point - sphere.center);
+    //TODO - add day/night cycle 
+    return vec4(66.0/255.0, 135.0/255.0,  245.0/255.0, 1.0);
+}
+
+void move_camera(out Camera cam)
+{
+    //TODO - add camera movement from keyboard
+
+    //currently moves cam in a circle around origin
+    cam.pos = vec3(cos(iTime), 0.0, sin(iTime)) * 5.0;
+    //look at origin    
+    cam.forward = normalize(-cam.pos);
+}
+
+
+vec4 draw_ground(in Ray ray)
+{
+    //TODO - draw all cubes based on some height/noise map here
+    
+    Cube cubes[3];
+    //RGB cubes
+    cubes[0] = Cube(vec3(-1.5, 0.0, 0.0), vec4(0.8, 0.0, 0.0, 1.0));
+    cubes[1] = Cube(vec3(0.0, 0.0, 0.0), vec4(0.0, 0.8, 0.0, 1.0));
+    cubes[2] = Cube(vec3(1.5, 0.0, 0.0), vec4(0.0, 0.0, 0.8, 1.0));
+
+    float min_depth = 100000000.0;
+    bool hit = false;
+    vec4 color = vec4(-1.0, 0.0, 0.0, 1.0);
+
+    for(int i = 0; i < 3; i++)
+    {
+        float intersect_depth = intersect_cube(ray, cubes[i]);
+        //check ray against sphere
+        if(intersect_depth > 0.0 && intersect_depth < min_depth)
+        {
+            min_depth = intersect_depth;            
+            vec3 point = point_from_depth(ray, intersect_depth);
+            vec4 ambient = cubes[i].color * rgb_cube(point, cubes[i]).r;
+            vec3 normal = normal_cube(point, cubes[i]);       
+            vec4 diffuse = sun.color * max(0.0, dot(normal, -sun.dir));
+
+            //basic red sphere
+            color = ambient + diffuse;
+            hit = true;
+        }  
+    } 
+    return color;
+}
+
+
+vec4 draw_clouds(in Ray ray)
+{
+    //TODO - draw clouds here
+
+    return vec4(0.0, 0.0, 0.0, 1.0);
 }
 
 void mainImage( out vec4 fragColor, in vec2 fragCoord )
@@ -150,44 +188,23 @@ void mainImage( out vec4 fragColor, in vec2 fragCoord )
     //vec3 pixel_pos = vec3(uv, 1.0);
     
     Camera cam = Camera(vec3(0.0, 0.0, -4.0), vec3(0.0, 0.0, 1.0), vec3(0.0, 1.0, 0.0));
-    //moves cam in a circle around origin
-    cam.pos = vec3(cos(iTime), 0.0, sin(iTime)) * 5.0;
-    //look at origin    
-    cam.forward = normalize(-cam.pos);
+    move_camera(cam);
+
+
     vec3 right = normalize(cross( cam.up, cam.forward));
     vec3 pixel_pos = cam.pos + cam.forward + (right * uv.x) + (cam.up * uv.y);
         
-    Sphere sphere = Sphere(vec3(0.0, 0.0, 0.0), 0.5);      
-    Cube cubes[3];
-    //RGB cubes
-    cubes[0] = Cube(vec3(-1.5, 0.0, 0.0), vec4(0.8, 0.0, 0.0, 1.0));
-    cubes[1] = Cube(vec3(0.0, 0.0, 0.0), vec4(0.0, 0.8, 0.0, 1.0));
-    cubes[2] = Cube(vec3(1.5, 0.0, 0.0), vec4(0.0, 0.0, 0.8, 1.0));
-
+    Sphere sphere = Sphere(vec3(0.0, 0.0, 0.0), 0.5);  
     Ray ray = Ray(cam.pos, normalize(pixel_pos - cam.pos)); 
     
-    //Yellow directional light
-    DirectionalLight sun = DirectionalLight(vec3(1.0, -1.0, 1.0), vec4(1.0, 0.9, .3, 1.0)*.5);
-    vec4 color = vec4(0.0, 0.0, 0.0, 1.0);
+    vec4 color = draw_ground(ray);
+    color += draw_clouds(ray);    
     
-    float min_depth = 100000000.0;
-    
-    for(int i = 0; i < 3; i++)
+    //nothing was hit
+    if(color.x == -1.0)
     {
-        float intersect_depth = intersect_cube(ray, cubes[i]);
-        //check ray against sphere
-        if(intersect_depth > 0.0 && intersect_depth < min_depth)
-        {
-            min_depth = intersect_depth;            
-            vec3 point = point_from_depth(ray, intersect_depth);
-            vec4 ambient = cubes[i].color * rgb_cube(point, cubes[i]).r;
-            vec3 normal = normal_cube(point, cubes[i]);       
-            vec4 diffuse = sun.color * max(0.0, dot(normal, -sun.dir));
-
-            //basic red sphere
-            color = ambient + diffuse;
-        }   
-    }    
+        color = sky();
+    }
     
     // Output to screen
     fragColor = color;
