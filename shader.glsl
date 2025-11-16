@@ -127,6 +127,7 @@ void move_camera(out Camera cam)
     cam.pos = vec3(cos(iTime), 0.0, sin(iTime)) * 5.0;
     //look at origin    
     cam.forward = normalize(-cam.pos);
+    cam.up = vec3(0.0, 1.0, 0.0);
 }
 
 
@@ -135,9 +136,12 @@ vec4 draw_ground(in Ray ray)
     //TODO - draw all cubes based on some height/noise map here
     
     Cube cubes[3];
-    //RGB cubes
+    //ground
     cubes[0] = Cube(vec3(-1.5, 0.0, 0.0), vec4(0.8, 0.0, 0.0, 1.0));
+    //cave
     cubes[1] = Cube(vec3(0.0, 0.0, 0.0), vec4(0.0, 0.8, 0.0, 1.0));
+
+    //
     cubes[2] = Cube(vec3(1.5, 0.0, 0.0), vec4(0.0, 0.0, 0.8, 1.0));
 
     float min_depth = 100000000.0;
@@ -146,6 +150,7 @@ vec4 draw_ground(in Ray ray)
 
     for(int i = 0; i < 3; i++)
     {
+        //cubes[i].pos.yz = vec2(float(k), float(k));
         float intersect_depth = intersect_cube(ray, cubes[i]);
         //check ray against sphere
         if(intersect_depth > 0.0 && intersect_depth < min_depth)
@@ -161,6 +166,7 @@ vec4 draw_ground(in Ray ray)
             hit = true;
         }  
     } 
+    
     return color;
 }
 
