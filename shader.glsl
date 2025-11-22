@@ -43,7 +43,7 @@ struct RaycastHit
 
 
 //Yellow directional light
-DirectionalLight sun = DirectionalLight(vec3(0.333, -0.333, 0.333), vec4(1.0, 0.9, .3, 1.0)*1.0f);
+DirectionalLight sun = DirectionalLight(vec3(0.333, -0.333, 0.333), vec4(1.0, 0.9, .3, 1.0)*0.5f);
 DirectionalLight moon = DirectionalLight(vec3(0.333, -0.333, 0.333), vec4(145.0/255.0,163.0/255.0,176.0/255.0, 1.0));
 bool is_day = false;
 float max_terrain_height = 120.0f;
@@ -51,6 +51,7 @@ float terrain_frequency = 0.01f;
 float water_height = 55.0f;
 float reflection_strength = 0.66f;
 int max_voxel_steps = 1024;
+vec4 water_color = vec4(.1, .3, .42, 1.0);
 
 //test a ray against a cube
 //based on wiki slab method: https://en.wikipedia.org/wiki/Slab_method
@@ -138,12 +139,21 @@ vec4 color_sky()
   
 }
 
+//sample the height map with an xz pos
+float height_map(vec2 pos)
+{
+    return floor(perlin2D(vec2(pos) * terrain_frequency) * max_terrain_height);
+}
+
 void move_camera(inout Camera cam)
 {
     //TODO - add camera movement from keyboard
 
     //moves cam forward constant atm to test terrain
-    cam.pos = vec3(0.0f, max_terrain_height * 0.66f, iTime * 8.0f);
+    float speed = 8.0f;
+    float z = iTime *speed;
+    float y = max_terrain_height * .66f;
+    cam.pos = vec3(0.0f, y, z);
     cam.forward = vec3(-0.5, 0.0, 0.5);    
     cam.up = vec3(0.0, 1.0, 0.0);
 }
@@ -153,7 +163,7 @@ bool hit_terrain(inout RaycastHit hit, vec3 voxel)
 {
     //samples "infinite" perlin noise atm using helper function
     //will prob choose a different noise to use  
-    float height = floor(perlin2D(vec2(voxel.xz) * terrain_frequency) * max_terrain_height);
+    float height = height_map(voxel.xz);
     
     if(float(voxel.y) < height)
     {
@@ -178,7 +188,7 @@ bool hit_water(inout RaycastHit hit, vec3 voxel)
     if(hit.cube.type == -1 && voxel.y >= 0.0f && voxel.y <= water_height)
     {
         hit.cube.type = 2;
-        hit.cube.color = vec4(0.235, 0.718, 1.0, 1.0) / 2.0f; 
+        hit.cube.color = water_color;
         return true;
     }
     return false;
