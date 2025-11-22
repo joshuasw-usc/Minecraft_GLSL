@@ -25,12 +25,6 @@ struct Camera
     vec3 up;
 };
 
-struct Sphere
-{
-    vec3 center;
-    float radius;
-};
-
 struct Cube
 {
     int type;
@@ -52,7 +46,11 @@ struct RaycastHit
 DirectionalLight sun = DirectionalLight(vec3(0.333, -0.333, 0.333), vec4(1.0, 0.9, .3, 1.0)*1.0f);
 DirectionalLight moon = DirectionalLight(vec3(0.333, -0.333, 0.333), vec4(145.0/255.0,163.0/255.0,176.0/255.0, 1.0));
 bool is_day = false;
-float max_terrain_height = 40.0f;
+float max_terrain_height = 120.0f;
+float terrain_frequency = 0.01f;
+float water_height = 55.0f;
+float reflection_strength = 0.66f;
+int max_voxel_steps = 1024;
 
 //test a ray against a cube
 //based on wiki slab method: https://en.wikipedia.org/wiki/Slab_method
@@ -145,7 +143,7 @@ void move_camera(inout Camera cam)
     //TODO - add camera movement from keyboard
 
     //moves cam forward constant atm to test terrain
-    cam.pos = vec3(0.0f, max_terrain_height * 0.75f, iTime * 4.0f);
+    cam.pos = vec3(0.0f, max_terrain_height * 0.66f, iTime * 8.0f);
     cam.forward = vec3(-0.5, 0.0, 0.5);    
     cam.up = vec3(0.0, 1.0, 0.0);
 }
@@ -155,7 +153,7 @@ bool hit_terrain(inout RaycastHit hit, vec3 voxel)
 {
     //samples "infinite" perlin noise atm using helper function
     //will prob choose a different noise to use  
-    float height = floor(perlin2D(vec2(voxel.xz) * 0.02) * max_terrain_height);
+    float height = floor(perlin2D(vec2(voxel.xz) * terrain_frequency) * max_terrain_height);
     
     if(float(voxel.y) < height)
     {
@@ -175,6 +173,17 @@ bool hit_clouds(inout RaycastHit hit, vec3 voxel)
     return false;
 }
 
+bool hit_water(inout RaycastHit hit, vec3 voxel)
+{
+    if(hit.cube.type == -1 && voxel.y >= 0.0f && voxel.y <= water_height)
+    {
+        hit.cube.type = 2;
+        hit.cube.color = vec4(0.235, 0.718, 1.0, 1.0) / 2.0f; 
+        return true;
+    }
+    return false;
+}
+
 
 //Uses Amanatides/Woo algorithm for voxel traversal along a ray
 //Returns a RaycastHit struct similar to Unity
@@ -183,6 +192,7 @@ RaycastHit raycast_voxels(in Ray ray)
 {
     RaycastHit hit;
     hit.hit = false;
+    hit.cube.type = -1;
 
     float t = 0.0f;
     
@@ -212,13 +222,13 @@ RaycastHit raycast_voxels(in Ray ray)
     vec3 tDelta = abs(inv_dir);
 
     //set a max steps in case nothing is hit
-    int max_steps = 512;
-    for(int i = 0; i < max_steps; i++)
+    for(int i = 0; i < max_voxel_steps; i++)
     {
         bool terrain = hit_terrain(hit, vec3(voxel));
         bool clouds = hit_clouds(hit, vec3(voxel));      
+        bool water = hit_water(hit, vec3(voxel));
 
-        if(terrain || clouds)
+        if(terrain || clouds || water)
         {
             //set the required fields of RaycastHit structs
             hit.cube.pos = vec3(voxel) + vec3(0.5);
@@ -261,12 +271,30 @@ vec4 color_cube(in Ray ray)
     if(hit.hit)
     { 
         //default ground is type0 
+
+        //COLOR + TEXTURES
         if(hit.cube.type == 0)
         {
             float value = sample_cube(hit).r;
             vec4 ambient = hit.cube.color * value;
-            color += ambient;
+            color += ambient;           
+        }
+        //clouds = 1
+        else if(hit.cube.type == 1)
+        {
+            //TODO - anything extra with cloud coloring
+            return hit.cube.color;
+        }
+        //water = 2
+        else if (hit.cube.type == 2)
+        {
+            color += hit.cube.color;
+        }
 
+        //LIGHTS + SHADOWS
+        if(hit.cube.type == 0 
+        || hit.cube.type == 2)
+        {
             DirectionalLight light;
             if(is_day)            
             {
@@ -286,13 +314,32 @@ vec4 color_cube(in Ray ray)
                 color += diffuse;        
             }        
         }
-        //clouds can be type 1
-        else if(hit.cube.type == 1)
+        
+
+        //REFLECTION
+        if(hit.cube.type == 2)
         {
-            //TODO - anything extra with cloud coloring
-            return hit.cube.color;
+            //basic reflection that supports 1 bounce only
+            vec3 reflected = normalize((ray.dir - (2.0f * dot(ray.dir, hit.normal) * hit.normal)));
+            Ray reflected_ray = Ray(hit.point + reflected * 0.001f, reflected);
+            RaycastHit reflected_hit = raycast_voxels(reflected_ray);
+
+            //can't do recursion, can cleanup code later for better reflection
+            if(reflected_hit.hit)
+            {
+                if(reflected_hit.cube.type == 0)
+                {
+                    float value = sample_cube(reflected_hit).r;
+                    vec4 ambient = reflected_hit.cube.color * value;
+                    color += ambient * reflection_strength;           
+                }
+                else
+                {
+                    color += reflected_hit.cube.color * reflection_strength;
+                }                
+            }           
         }
-       
+
         return color;
     }
 
@@ -323,32 +370,29 @@ void day_night_cycle()
 void mainImage( out vec4 fragColor, in vec2 fragCoord )
 {    
 
-    //update the day/night day_night_cycle
+    //1. update the day/night day_night_cycle
     day_night_cycle();
     
-    // Normalized pixel coordinates (from 0 to 1)
+    //2.Convert to ndc 
     vec2 uv_og = fragCoord/iResolution.xy;
     vec2 uv = fragCoord/iResolution.xy;
     
     //Map from [0,1] to [-1, 1]
     uv *= 2.0;
-     uv -= 1.0;
-    
+    uv -= 1.0;    
     //multiply width by aspect ratio
     uv.x *= (iResolution.x/iResolution.y);
     
-    //vec3 pixel_pos = vec3(uv, 1.0);
-    
+    //3. Move camera    
     Camera cam = Camera(vec3(0.0, 30.0f, 0.0f), vec3(-0.5, 0.0, 0.5), vec3(0.0, 1.0, 0.0));
     move_camera(cam);
-
-
     vec3 right = normalize(cross( cam.up, cam.forward));
     vec3 pixel_pos = cam.pos + cam.forward + (right * uv.x) + (cam.up * uv.y);
-        
-    Sphere sphere = Sphere(vec3(0.0, 0.0, 0.0), 0.5);  
+
+    //4. Create ray based on camera struct
     Ray ray = Ray(cam.pos, normalize(pixel_pos - cam.pos)); 
     
+    //5. Get pixel color
     vec4 color = color_cube(ray);
 
     //nothing was hit
