@@ -52,7 +52,7 @@ struct RaycastHit
 DirectionalLight sun = DirectionalLight(vec3(0.333, -0.333, 0.333), vec4(1.0, 0.9, .3, 1.0)*1.0f);
 DirectionalLight moon = DirectionalLight(vec3(0.333, -0.333, 0.333), vec4(145.0/255.0,163.0/255.0,176.0/255.0, 1.0));
 bool is_day = false;
-float max_terrain_height = 100.0f;
+float max_terrain_height = 40.0f;
 
 //test a ray against a cube
 //based on wiki slab method: https://en.wikipedia.org/wiki/Slab_method
@@ -310,7 +310,7 @@ vec4 draw_clouds(in Ray ray)
 void day_night_cycle()
 {
     //move the sun/moon around xy unit circle
-    vec3 sun_position = vec3(cos(1.57 + iTime * 0.5f), sin(1.57 + iTime * 0.5f), 0.0f);
+    vec3 sun_position = vec3(cos(1.57 + iTime * 0.25f), sin(1.57 + iTime * 0.25f), 0.0f);
     sun.dir = -sun_position;
     sun.dir.z = 1.0f;
 
