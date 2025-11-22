@@ -1,9 +1,11 @@
 #iChannel0 'file://noise.png'
+#include "helper.glsl"
 
 
-//above is local only variables^^^ - do not paste in shadertoy
-//copy&paste from here down to view in shadertoy
+//above is local only variables^^^ - do not add to shadertoy
 //To view locally press 'ctrl + shift + p' then search for 'ShaderToy: Show GLSL Preview'
+
+
 struct Ray
 {
     vec3 pos;
@@ -31,15 +33,28 @@ struct Sphere
 
 struct Cube
 {
+    int type;
     vec3 pos;
     vec4 color;
 };
 
- //Yellow directional light
-DirectionalLight sun = DirectionalLight(vec3(1.0, -1.0, 1.0), vec4(1.0, 0.9, .3, 1.0)*.5);
-   
+struct RaycastHit
+{
+    Cube cube;
+    float distance;
+    vec3 point;
+    vec3 normal;
+    bool hit;
+};
 
 
+//Yellow directional light
+DirectionalLight sun = DirectionalLight(vec3(0.333, -0.333, 0.333), vec4(1.0, 0.9, .3, 1.0)*1.0f);
+DirectionalLight moon = DirectionalLight(vec3(0.333, -0.333, 0.333), vec4(145.0/255.0,163.0/255.0,176.0/255.0, 1.0));
+bool is_day = false;
+float max_terrain_height = 100.0f;
+
+//test a ray against a cube
 //based on wiki slab method: https://en.wikipedia.org/wiki/Slab_method
 float intersect_cube(in Ray ray, in Cube cube)
 {
@@ -67,11 +82,10 @@ float intersect_cube(in Ray ray, in Cube cube)
 
 
 //gets the cube normal vec
-vec3 normal_cube(in vec3 point, in Cube cube)
+vec3 normal_cube(in Cube cube, in vec3 world_point)
 {
     //translates to [-1, 1] range 
-    vec3 p = point - cube.pos;    
-    
+    vec3 p = world_point - cube.pos;        
     
     if (abs(p.x) > abs(p.y) && abs(p.x) > abs(p.z))
     {
@@ -89,10 +103,10 @@ vec3 normal_cube(in vec3 point, in Cube cube)
 
 
 //samples 2d noise volume 
-vec4 rgb_cube(in vec3 point, in Cube cube)
+vec4 sample_cube(in RaycastHit hit)
 {
     //map to [-.5, .5] range
-    vec3 p = point - cube.pos;
+    vec3 p = hit.point - hit.cube.pos;
 
     if(abs(p.z) <= 0.50001 && abs(p.z) >= 0.4999)
     {
@@ -108,66 +122,181 @@ vec4 rgb_cube(in vec3 point, in Cube cube)
     }
 }
 
-vec3 point_from_depth( in Ray ray, in float depth)
+vec3 world_point_from_intersection( in Ray ray, in float depth)
 {
     return ray.pos + ray.dir * depth;
 }
 
-vec4 sky()
+vec4 color_sky()
 {
-    //TODO - add day/night cycle 
-    return vec4(66.0/255.0, 135.0/255.0,  245.0/255.0, 1.0);
+    if(is_day)
+    {
+        return vec4(66.0/255.0, 135.0/255.0,  245.0/255.0, 1.0);
+    }
+    else
+    {
+        return vec4(0.0, 0.05, .1, 1.0);
+    }
+  
 }
 
-void move_camera(out Camera cam)
+void move_camera(inout Camera cam)
 {
     //TODO - add camera movement from keyboard
 
-    //currently moves cam in a circle around origin
-    cam.pos = vec3(cos(iTime), 0.0, sin(iTime)) * 5.0;
-    //look at origin    
-    cam.forward = normalize(-cam.pos);
+    //moves cam forward constant atm to test terrain
+    cam.pos = vec3(0.0f, max_terrain_height * 0.75f, iTime * 4.0f);
+    cam.forward = vec3(-0.5, 0.0, 0.5);    
     cam.up = vec3(0.0, 1.0, 0.0);
 }
 
-
-vec4 draw_ground(in Ray ray)
+//tests if voxel is a terrain voxel
+bool hit_terrain(inout RaycastHit hit, vec3 voxel)
 {
-    //TODO - draw all cubes based on some height/noise map here
+    //samples "infinite" perlin noise atm using helper function
+    //will prob choose a different noise to use  
+    float height = floor(perlin2D(vec2(voxel.xz) * 0.02) * max_terrain_height);
     
-    Cube cubes[3];
-    //ground
-    cubes[0] = Cube(vec3(-1.5, 0.0, 0.0), vec4(0.8, 0.0, 0.0, 1.0));
-    //cave
-    cubes[1] = Cube(vec3(0.0, 0.0, 0.0), vec4(0.0, 0.8, 0.0, 1.0));
-
-    //
-    cubes[2] = Cube(vec3(1.5, 0.0, 0.0), vec4(0.0, 0.0, 0.8, 1.0));
-
-    float min_depth = 100000000.0;
-    bool hit = false;
-    vec4 color = vec4(-1.0, 0.0, 0.0, 1.0);
-
-    for(int i = 0; i < 3; i++)
+    if(float(voxel.y) < height)
     {
-        //cubes[i].pos.yz = vec2(float(k), float(k));
-        float intersect_depth = intersect_cube(ray, cubes[i]);
-        //check ray against sphere
-        if(intersect_depth > 0.0 && intersect_depth < min_depth)
-        {
-            min_depth = intersect_depth;            
-            vec3 point = point_from_depth(ray, intersect_depth);
-            vec4 ambient = cubes[i].color * rgb_cube(point, cubes[i]).r;
-            vec3 normal = normal_cube(point, cubes[i]);       
-            vec4 diffuse = sun.color * max(0.0, dot(normal, -sun.dir));
+        //TODO - determine biome to set type, color, etc.
+        hit.cube.type = 0;
+        hit.cube.color = vec4(74.0/255.0, 23.0/255.0, 0.0, 1.0); 
+        return true;    
+    }
 
-            //basic red sphere
-            color = ambient + diffuse;
-            hit = true;
-        }  
-    } 
+    return false;
+}
+
+bool hit_clouds(inout RaycastHit hit, vec3 voxel)
+{    
+    //TODO - test if current voxel is a cloud voxel
+   
+    return false;
+}
+
+
+//Uses Amanatides/Woo algorithm for voxel traversal along a ray
+//Returns a RaycastHit struct similar to Unity
+//https://www.cs.yorku.ca/~amana/research/grid.pdf
+RaycastHit raycast_voxels(in Ray ray)
+{
+    RaycastHit hit;
+    hit.hit = false;
+
+    float t = 0.0f;
     
-    return color;
+
+    //initialization phase: described on page 2
+    //---
+    //get our starting voxel
+    ivec3 voxel = ivec3(floor(ray.pos));
+    //set step as +1/-1 for each axis
+    ivec3 step = ivec3(sign(ray.dir));
+    vec3 inv_dir = 1.0 / ray.dir;
+
+    //voxel bounds
+    vec3 voxelMin = vec3(voxel);
+    vec3 voxelMax = voxelMin + vec3(1.0);
+
+    //initialize tMax according to page 2
+    vec3 tMax;
+    //voxel = ray.pos + ray.dir * t, so t = (voxel - ray.pos) / ray.dir
+    //if axis is +1 dir: max bound - ray pos
+    //else if axis is -1 dir: ray pos - min bound
+    tMax.x = (step.x > 0 ? (voxelMax.x - ray.pos.x) : (ray.pos.x - voxelMin.x)) * abs(inv_dir.x);
+    tMax.y = (step.y > 0 ? (voxelMax.y - ray.pos.y) : (ray.pos.y - voxelMin.y)) * abs(inv_dir.y);
+    tMax.z = (step.z > 0 ? (voxelMax.z - ray.pos.z) : (ray.pos.z - voxelMin.z)) * abs(inv_dir.z);
+    
+    // delta to move to next voxel
+    vec3 tDelta = abs(inv_dir);
+
+    //set a max steps in case nothing is hit
+    int max_steps = 512;
+    for(int i = 0; i < max_steps; i++)
+    {
+        bool terrain = hit_terrain(hit, vec3(voxel));
+        bool clouds = hit_clouds(hit, vec3(voxel));      
+
+        if(terrain || clouds)
+        {
+            //set the required fields of RaycastHit structs
+            hit.cube.pos = vec3(voxel) + vec3(0.5);
+            hit.distance = intersect_cube(ray, hit.cube);
+            hit.point = world_point_from_intersection(ray, hit.distance);
+            hit.normal = normal_cube(hit.cube, hit.point);
+            hit.hit = true;
+            return hit;
+        }
+
+        // incremental phase, page 3:
+        if (tMax.x < tMax.y && tMax.x < tMax.z)
+        {
+            t = tMax.x;
+            tMax.x += tDelta.x;
+            voxel.x += step.x;
+        }
+        else if (tMax.y < tMax.z)
+        {
+            t = tMax.y;
+            tMax.y += tDelta.y;
+            voxel.y += step.y;
+        }
+        else
+        {
+            t = tMax.z;
+            tMax.z += tDelta.z;
+            voxel.z += step.z;
+        }
+    }
+
+    return hit;
+}
+
+vec4 color_cube(in Ray ray)
+{
+    RaycastHit hit = raycast_voxels(ray);
+    vec4 color = vec4(0.0, 0.0, 0.0, 1.0);
+
+    if(hit.hit)
+    { 
+        //default ground is type0 
+        if(hit.cube.type == 0)
+        {
+            float value = sample_cube(hit).r;
+            vec4 ambient = hit.cube.color * value;
+            color += ambient;
+
+            DirectionalLight light;
+            if(is_day)            
+            {
+                light = sun;
+            }
+            else
+            {
+                light = moon;
+            }
+            //shadows
+            Ray shadow_ray = Ray(hit.point - light.dir * 0.001, -light.dir);
+            RaycastHit shadow_hit = raycast_voxels(shadow_ray);          
+            if(!shadow_hit.hit)
+            {
+                //no lighting    
+                vec4 diffuse = light.color * max(0.0, dot(hit.normal, -light.dir));
+                color += diffuse;        
+            }        
+        }
+        //clouds can be type 1
+        else if(hit.cube.type == 1)
+        {
+            //TODO - anything extra with cloud coloring
+            return hit.cube.color;
+        }
+       
+        return color;
+    }
+
+    return vec4(-1.0, 0.0, 0.0, 1.0);
 }
 
 
@@ -178,8 +307,25 @@ vec4 draw_clouds(in Ray ray)
     return vec4(0.0, 0.0, 0.0, 1.0);
 }
 
+void day_night_cycle()
+{
+    //move the sun/moon around xy unit circle
+    vec3 sun_position = vec3(cos(1.57 + iTime * 0.5f), sin(1.57 + iTime * 0.5f), 0.0f);
+    sun.dir = -sun_position;
+    sun.dir.z = 1.0f;
+
+    sun.dir = normalize(sun.dir);
+    moon.dir = -sun.dir;
+
+    is_day = sun_position.y > 0.0;
+}
+
 void mainImage( out vec4 fragColor, in vec2 fragCoord )
 {    
+
+    //update the day/night day_night_cycle
+    day_night_cycle();
+    
     // Normalized pixel coordinates (from 0 to 1)
     vec2 uv_og = fragCoord/iResolution.xy;
     vec2 uv = fragCoord/iResolution.xy;
@@ -193,7 +339,7 @@ void mainImage( out vec4 fragColor, in vec2 fragCoord )
     
     //vec3 pixel_pos = vec3(uv, 1.0);
     
-    Camera cam = Camera(vec3(0.0, 0.0, -4.0), vec3(0.0, 0.0, 1.0), vec3(0.0, 1.0, 0.0));
+    Camera cam = Camera(vec3(0.0, 30.0f, 0.0f), vec3(-0.5, 0.0, 0.5), vec3(0.0, 1.0, 0.0));
     move_camera(cam);
 
 
@@ -203,15 +349,14 @@ void mainImage( out vec4 fragColor, in vec2 fragCoord )
     Sphere sphere = Sphere(vec3(0.0, 0.0, 0.0), 0.5);  
     Ray ray = Ray(cam.pos, normalize(pixel_pos - cam.pos)); 
     
-    vec4 color = draw_ground(ray);
-    color += draw_clouds(ray);    
-    
+    vec4 color = color_cube(ray);
+
     //nothing was hit
     if(color.x == -1.0)
     {
-        color = sky();
+        color += color_sky();
     }
     
     // Output to screen
-    fragColor = color;
+     fragColor = color;
 }
