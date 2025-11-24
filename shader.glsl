@@ -184,12 +184,23 @@ vec4 color_sky(vec3 rd)
 
 void move_camera(inout Camera cam)
 {
-    //TODO - add camera movement from keyboard
+    // Try to read persistent position from Buffer A (iChannel1)
+    vec3 camPos = texelFetch(iChannel1, ivec2(0, 0), 0).xyz;
 
-    //moves cam forward constant atm to test terrain
-    cam.pos = vec3(0.0f, max_terrain_height * 0.66f, iTime * 8.0f);
-    cam.forward = vec3(-0.5, 0.0, 0.5);    
-    cam.up = vec3(0.0, 1.0, 0.0);
+    bool valid = (length(camPos) > 0.0001);
+
+    // Fallback to panning camera (VS Code)
+    if (!valid)
+    {
+        cam.pos     = vec3(0.0f, max_terrain_height * 0.66f, iTime * 8.0f);
+        cam.forward = normalize(vec3(-0.5, 0.0, 0.5));
+        cam.up      = vec3(0.0, 1.0, 0.0);
+        return;
+    }
+
+    cam.pos     = camPos;
+    cam.forward = normalize(vec3(-0.5, 0.0, 0.5));
+    cam.up      = vec3(0.0, 1.0, 0.0);
 }
 
 //tests if voxel is a terrain voxel
