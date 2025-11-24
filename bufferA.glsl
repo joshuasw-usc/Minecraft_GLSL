@@ -9,7 +9,7 @@ float max_terrain_height = 120.0;
 // Shadertoy keyboard helper
 bool keyDown(int keyCode)
 {
-    return texelFetch(iChannel1, ivec2(keyCode, 0), 0).x > 0.5;
+    return texelFetch(iChannel1, ivec2(keyCode, 0), 0).x > 0.01;
 }
 
 void mainImage(out vec4 fragColor, in vec2 fragCoord)
@@ -31,10 +31,19 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord)
     else
         camPos = texelFetch(iChannel0, ivec2(0, 0), 0).xyz;
 
-    // Original fixed forward & up for movement
-    vec3 camForward = normalize(vec3(-0.5, 0.0, 0.5));
-    vec3 up         = vec3(0.0, 1.0, 0.0);
-    vec3 right      = normalize(cross(up, camForward));
+    // Mouse Input
+    vec2 m = iMouse.xy / iResolution.xy;
+    float yaw   = (m.x - 0.5) * 6.2831853;
+    float pitch = (m.y - 0.5) * 1.2;
+
+    vec3 camForward;
+    camForward.x = cos(pitch) * sin(yaw);
+    camForward.y = sin(pitch);
+    camForward.z = cos(pitch) * cos(yaw);
+    camForward = normalize(camForward);
+
+    vec3 up    = vec3(0.0, 1.0, 0.0);
+    vec3 right = normalize(cross(up, camForward));
 
     // WASD: 'W'=87, 'A'=65, 'S'=83, 'D'=68
     float w = keyDown(87) ? 1.0 : 0.0;
@@ -61,7 +70,6 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord)
     }
 
     // Keep above ground
-    camPos.y = clamp(camPos.y, 10.0, max_terrain_height * 1.5);
 
     // Store position in (0,0)
     fragColor = vec4(camPos, 1.0);

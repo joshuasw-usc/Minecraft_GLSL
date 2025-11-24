@@ -198,9 +198,23 @@ void move_camera(inout Camera cam)
         return;
     }
 
+    vec2 m = iMouse.xy / iResolution.xy;
+
+    float yaw   = (m.x - 0.5) * 6.2831853;   // [-π, π]
+    float pitch = (m.y - 0.5) * 1.2;
+
+    vec3 forward;
+    forward.x = cos(pitch) * sin(yaw);
+    forward.y = sin(pitch);
+    forward.z = cos(pitch) * cos(yaw);
+
+    vec3 up = vec3(0.0, 1.0, 0.0);
+    vec3 right = normalize(cross(up, forward));
+    up = normalize(cross(forward, right));
+
     cam.pos     = camPos;
-    cam.forward = normalize(vec3(-0.5, 0.0, 0.5));
-    cam.up      = vec3(0.0, 1.0, 0.0);
+    cam.forward = normalize(forward);
+    cam.up      = up;
 }
 
 //tests if voxel is a terrain voxel
