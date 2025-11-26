@@ -63,3 +63,72 @@ float perlin2D(vec2 p) {
     // Optional: map from roughly [-1,1] to [0,1]
     return 0.5 * v + 0.5;
 }
+
+
+
+//Gets a pseduo random vector3
+vec3 random_vec3D(vec3 ip) {
+    float x = hash13(ip);
+    float y = hash13(ip + 19.1);
+    float z = hash13(ip + 47.3);
+
+    // map [0,1] → [-1,1]
+    vec3 g = vec3(x,y,z) * 2.0 - 1.0;
+    return normalize(g);
+}
+
+
+// Map pos to 3D Perlin-like noise in [0,1]
+float perlin3D(vec3 p)
+{
+    // Lattice coordinates and local fractional position
+    vec3 ip = floor(p);
+    vec3 fp = fract(p);
+
+    // Gradients at 8 corners of the cell
+    vec3 g000 = random_vec3D(ip + vec3(0.0, 0.0, 0.0));
+    vec3 g100 = random_vec3D(ip + vec3(1.0, 0.0, 0.0));
+    vec3 g010 = random_vec3D(ip + vec3(0.0, 1.0, 0.0));
+    vec3 g110 = random_vec3D(ip + vec3(1.0, 1.0, 0.0));
+    vec3 g001 = random_vec3D(ip + vec3(0.0, 0.0, 1.0));
+    vec3 g101 = random_vec3D(ip + vec3(1.0, 0.0, 1.0));
+    vec3 g011 = random_vec3D(ip + vec3(0.0, 1.0, 1.0));
+    vec3 g111 = random_vec3D(ip + vec3(1.0, 1.0, 1.0));
+
+    // Vectors from each corner to p
+    vec3 d000 = fp - vec3(0.0, 0.0, 0.0);
+    vec3 d100 = fp - vec3(1.0, 0.0, 0.0);
+    vec3 d010 = fp - vec3(0.0, 1.0, 0.0);
+    vec3 d110 = fp - vec3(1.0, 1.0, 0.0);
+    vec3 d001 = fp - vec3(0.0, 0.0, 1.0);
+    vec3 d101 = fp - vec3(1.0, 0.0, 1.0);
+    vec3 d011 = fp - vec3(0.0, 1.0, 1.0);
+    vec3 d111 = fp - vec3(1.0, 1.0, 1.0);
+
+    // Dot products (influence of each corner)
+    float v000 = dot(g000, d000);
+    float v100 = dot(g100, d100);
+    float v010 = dot(g010, d010);
+    float v110 = dot(g110, d110);
+    float v001 = dot(g001, d001);
+    float v101 = dot(g101, d101);
+    float v011 = dot(g011, d011);
+    float v111 = dot(g111, d111);
+
+    // Smooth interpolation weights
+    vec3 u = vec3(fade(fp.x), fade(fp.y), fade(fp.z));
+
+    // Trilinear interpolation with smooth weights
+    float x00 = mix(v000, v100, u.x);
+    float x10 = mix(v010, v110, u.x);
+    float x01 = mix(v001, v101, u.x);
+    float x11 = mix(v011, v111, u.x);
+
+    float y0 = mix(x00, x10, u.y);
+    float y1 = mix(x01, x11, u.y);
+
+    float v = mix(y0, y1, u.z);
+
+    // Map from roughly [-1,1] to [0,1]
+    return v * 0.5 + 0.5;
+}

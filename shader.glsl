@@ -39,8 +39,15 @@ struct RaycastHit
     vec3 point;
     vec3 normal;
     bool hit;
+    bool maxed_out;
 };
 
+int DEFAULT = 0;
+int CLOUDS = 1;
+int WATER = 2;
+int DESERT = 3;
+int TUNDRA = 4;
+int CAVE = 5;
 
 //Yellow directional light
 DirectionalLight sun = DirectionalLight(vec3(0.333, -0.333, 0.333), vec4(1.0, 0.9, .3, 1.0)*0.5f);
@@ -53,7 +60,14 @@ float water_height = 55.0f;
 float reflection_strength = 0.66f;
 int max_voxel_steps = 1024;
 vec4 water_color = vec4(.1, .3, .42, 1.0);
-
+float temp_frequency = 0.005f;
+float wet_frequency = 0.005f;
+float cave_frequency = 0.01f;
+bool test_caves = false;
+vec4 fog = vec4(0.8, 0.8, 1.0, 1.0);
+float fog_start = 25.0f;
+float fog_end = 500.0f;
+float day_night_speed = 0.1f;
 float cloud_base_height = 150.0;
 float cloud_thickness  = 5.0;
 float cloud_noise_scale = 0.008;
@@ -111,20 +125,25 @@ vec3 normal_cube(in Cube cube, in vec3 world_point)
 //samples 2d noise volume 
 vec4 sample_cube(in RaycastHit hit)
 {
+    float max_distance = 100.0f;
+    //return vec4(1.0, 0.0, 0.0, 1.0);
     //map to [-.5, .5] range
-    vec3 p = hit.point - hit.cube.pos;
 
+    float scale = 1.0 - clamp(hit.distance / max_distance, 0.0, 1.0);
+    scale = clamp(scale, 0.01, 1.0);
+    vec3 p = hit.point - hit.cube.pos;
+    float lod = clamp(hit.distance, 0.0, 10.0);
     if(abs(p.z) <= 0.50001 && abs(p.z) >= 0.4999)
     {
-        return texture(iChannel0, p.xy);
+        return textureLod(iChannel0, p.xy * scale, lod);
     }
     else if(abs(p.x) <= 0.50001 && abs(p.x) >= 0.4999)
     {
-        return texture(iChannel0, p.yz);
+        return textureLod(iChannel0, p.yz* scale, lod);
     }
     else 
     {
-        return texture(iChannel0, p.xz);
+        return textureLod(iChannel0, p.xz* scale, lod);
     }
 }
 
@@ -132,6 +151,7 @@ vec3 world_point_from_intersection( in Ray ray, in float depth)
 {
     return ray.pos + ray.dir * depth;
 }
+
 
 // combines different colors for the sky (makes it look like sunrise/sunset)
 vec3 getSkyColor(vec3 rd)
@@ -143,6 +163,12 @@ vec3 getSkyColor(vec3 rd)
     vec3 topSky = vec3(0.05, 0.05, 0.15);
 
     return mix(mix(horizon, midSky, smoothstep(0.0, 0.5, t)), topSky, smoothstep(0.5, 1.0, t));
+}
+
+//fog based on sky color
+float getFogAmount(float distance)
+{
+    return clamp((distance - fog_start) / (fog_end - fog_start), 0.0, 1.0); 
 }
 
 
@@ -196,10 +222,19 @@ void move_camera(inout Camera cam)
 
     bool valid = (length(camPos) > 0.0001);
 
+   
     // Fallback to panning camera (VS Code)
     if (!valid)
     {
-        cam.pos     = vec3(0.0f, max_terrain_height * 0.66f, iTime * 8.0f);
+        
+        if(test_caves)
+        {
+            cam.pos     = vec3(0.0f, -500.5f, iTime * 8.0f);
+        }
+        else
+        {
+            cam.pos     = vec3(0.0f, max_terrain_height * 0.66f, iTime * 8.0f);
+        }        
         cam.forward = normalize(vec3(-0.5, 0.0, 0.5));
         cam.up      = vec3(0.0, 1.0, 0.0);
         return;
@@ -230,17 +265,50 @@ bool hit_terrain(inout RaycastHit hit, vec3 voxel)
     //samples "infinite" perlin noise atm using helper function
     //will prob choose a different noise to use  
     float height = height_map(voxel.xz);
-    
-    if(float(voxel.y) < height)
+
+    //also sample for temp/wet noise w/ some arbitrary offset
+    float temp = perlin2D(voxel.xz * temp_frequency + vec2(105.0));
+    float wet = perlin2D(voxel.xz * wet_frequency + vec2(-943.0));
+
+    if(float(voxel.y) < height && voxel.y >= 0.0) 
     {
         //TODO - determine biome to set type, color, etc.
-        hit.cube.type = 0;
+        if(temp >= 0.5 && wet >= 0.5)
+        {
+            //default biome
+            hit.cube.type = DEFAULT;
+        }
+        else if(temp >= 0.5 && wet < 0.5)
+        {
+            //desert biome
+            hit.cube.type = DESERT;
+        }
+        else if(temp < 0.5)
+        {
+            hit.cube.type = TUNDRA;
+        }
+       
         hit.cube.color = vec4(74.0/255.0, 23.0/255.0, 0.0, 1.0); 
         return true;    
+    }
+    return false;
+}
+
+//test if voxel hit cave
+bool hit_cave (inout RaycastHit hit, vec3 voxel)
+{
+  
+    float value = perlin3D(voxel * cave_frequency);
+
+    if(voxel.y < 0.0 && value > 0.5)
+    {
+        hit.cube.type = CAVE;
+        return true;
     }
 
     return false;
 }
+
 
 bool hit_clouds(inout RaycastHit hit, vec3 voxel)
 {
@@ -259,7 +327,6 @@ bool hit_clouds(inout RaycastHit hit, vec3 voxel)
         hit.cube.color = vec4(0.75, 0.75, 0.80, 0.55); // can be adjsuted (would be cool to add different kinds of weather)
         return true;
     }
-
     return false;
 }
 
@@ -316,10 +383,11 @@ RaycastHit raycast_voxels(in Ray ray)
     for(int i = 0; i < max_voxel_steps; i++)
     {
         bool terrain = hit_terrain(hit, vec3(voxel));
-        bool clouds = hit_clouds(hit, vec3(voxel));      
-        bool water = hit_water(hit, vec3(voxel));
+        bool clouds = hit.cube.type == -1 ? hit_clouds(hit, vec3(voxel)) : false;    
+        bool water = hit.cube.type == -1 ? hit_water(hit, vec3(voxel)) : false;
+        bool cave = hit.cube.type == -1 ? hit_cave(hit, vec3(voxel)) : false;
 
-        if(terrain || clouds || water)
+        if(terrain || clouds || water || cave)
         {
             //set the required fields of RaycastHit structs
             hit.cube.pos = vec3(voxel) + vec3(0.5);
@@ -351,8 +419,11 @@ RaycastHit raycast_voxels(in Ray ray)
         }
     }
 
+    hit.maxed_out = true;
     return hit;
 }
+
+
 
 vec4 color_cube(in Ray ray)
 {
@@ -363,15 +434,35 @@ vec4 color_cube(in Ray ray)
     { 
         //default ground is type0 
 
+        bool biome_cube = hit.cube.type == DEFAULT
+            || hit.cube.type == TUNDRA
+            || hit.cube.type == DESERT
+            || hit.cube.type == CAVE;
         //COLOR + TEXTURES
-        if(hit.cube.type == 0)
+        if(biome_cube)
         {
             float value = sample_cube(hit).r;
-            vec4 ambient = hit.cube.color * value;
-            color += ambient;           
+            vec4 ambient;
+            if(hit.cube.type == DEFAULT)
+            {
+                ambient = vec4(0.58, 0.29, 0.0, 1.0) * value;
+            }
+            else if(hit.cube.type == DESERT)
+            {
+                ambient = vec4(1.0, .804, .604, 1.0) * value;
+            }        
+            else if(hit.cube.type == TUNDRA)
+            {
+                ambient = vec4(1.0, 1.0, 1.0, 1.0) * value;
+            }
+            else if(hit.cube.type == CAVE)
+            {
+                ambient = vec4(0.5, 0.5, 0.5, 1.0) * value;
+            }
+            color += ambient;              
         }
         //clouds = 1
-        else if(hit.cube.type == 1)
+        else if(hit.cube.type == CLOUDS)
         {
             // since the clouds are transpareent we need to blend the cloud color and sky color together
             vec4 sky = color_sky(ray.dir);
@@ -380,16 +471,14 @@ vec4 color_cube(in Ray ray)
 
             return vec4(col, 1.0);
         }
-
         //water = 2
-        else if (hit.cube.type == 2)
+        else if (hit.cube.type == WATER)
         {
             color += hit.cube.color;
         }
 
         //LIGHTS + SHADOWS
-        if(hit.cube.type == 0 
-        || hit.cube.type == 2)
+        if(biome_cube || hit.cube.type == WATER)
         {
             DirectionalLight light;
             if(is_day)            
@@ -402,8 +491,10 @@ vec4 color_cube(in Ray ray)
             }
             //shadows
             Ray shadow_ray = Ray(hit.point - light.dir * 0.001, -light.dir);
-            RaycastHit shadow_hit = raycast_voxels(shadow_ray);          
-            if(!shadow_hit.hit)
+            RaycastHit shadow_hit = raycast_voxels(shadow_ray); 
+
+            //for caves - if max_steps is reached assume NO light/shadows         
+            if(!shadow_hit.hit && !(hit.cube.type == CAVE && shadow_hit.maxed_out))
             {
                 //no lighting    
                 vec4 diffuse = light.color * max(0.0, dot(hit.normal, -light.dir));
@@ -413,7 +504,7 @@ vec4 color_cube(in Ray ray)
         
 
         //REFLECTION
-        if(hit.cube.type == 2)
+        if(hit.cube.type == WATER)
         {
             //basic reflection that supports 1 bounce only
             vec3 reflected = normalize((ray.dir - (2.0f * dot(ray.dir, hit.normal) * hit.normal)));
@@ -436,7 +527,9 @@ vec4 color_cube(in Ray ray)
             }           
         }
 
-        return color;
+        vec3 fog_color = getSkyColor(ray.dir);
+        float fog_amount = getFogAmount(hit.distance);
+        return mix(color, vec4(fog_color, 1.0), fog_amount);
     }
 
     return vec4(-1.0, 0.0, 0.0, 1.0);
@@ -444,10 +537,11 @@ vec4 color_cube(in Ray ray)
 
 
 
+
 void day_night_cycle()
 {
     // move the sun/moon around xy unit circle
-    vec3 sun_position = vec3(cos(1.57 + iTime * 0.25), sin(1.57 + iTime * 0.25), 0.0);
+    vec3 sun_position = vec3(cos(1.57 + iTime * day_night_speed), sin(1.57 + iTime *day_night_speed), 0.0);
     sun.dir = -sun_position;
     sun.dir.z = 1.0;
 
