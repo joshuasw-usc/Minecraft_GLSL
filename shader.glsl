@@ -46,12 +46,19 @@ struct RaycastHit
 DirectionalLight sun = DirectionalLight(vec3(0.333, -0.333, 0.333), vec4(1.0, 0.9, .3, 1.0)*0.5f);
 DirectionalLight moon = DirectionalLight(vec3(0.333, -0.333, 0.333), vec4(145.0/255.0,163.0/255.0,176.0/255.0, 1.0));
 bool is_day = false;
+float sky_brightness = 0.0;
 float max_terrain_height = 120.0f;
 float terrain_frequency = 0.01f;
 float water_height = 55.0f;
 float reflection_strength = 0.66f;
 int max_voxel_steps = 1024;
 vec4 water_color = vec4(.1, .3, .42, 1.0);
+
+float cloud_base_height = 150.0;
+float cloud_thickness  = 5.0;
+float cloud_noise_scale = 0.008;
+float cloud_threshold   = 0.6;
+float cloud_wind_speed  = 5.0;
 
 //test a ray against a cube
 //based on wiki slab method: https://en.wikipedia.org/wiki/Slab_method
@@ -126,17 +133,54 @@ vec3 world_point_from_intersection( in Ray ray, in float depth)
     return ray.pos + ray.dir * depth;
 }
 
-vec4 color_sky()
+// combines different colors for the sky (makes it look like sunrise/sunset)
+vec3 getSkyColor(vec3 rd)
 {
-    if(is_day)
-    {
-        return vec4(66.0/255.0, 135.0/255.0,  245.0/255.0, 1.0);
-    }
-    else
-    {
-        return vec4(0.0, 0.05, .1, 1.0);
-    }
-  
+    float t = clamp(rd.y * 0.5 + 0.5, 0.0, 1.0);
+
+    vec3 horizon = vec3(0.90, 0.55, 0.30);
+    vec3 midSky = vec3(0.30, 0.50, 0.90);
+    vec3 topSky = vec3(0.05, 0.05, 0.15);
+
+    return mix(mix(horizon, midSky, smoothstep(0.0, 0.5, t)), topSky, smoothstep(0.5, 1.0, t));
+}
+
+
+// adds tiny little stars
+float getStarIntensity(vec3 dir)
+{
+    vec3 d = normalize(dir);
+
+    float gridSize = 300.0; // increase for higher density
+    vec3 cell = floor(d * gridSize);
+
+    float h = hash13(cell);
+    float threshold = 0.995; // controls how many stars there are
+    float starMask = step(threshold, h);
+
+    float intensity = max(0.0, (h - threshold) * (1.0 / (1.0 - threshold)));
+
+    // tried adding some 'blurring' and angeling so the stars look better. In the futur I may add flickering
+    vec3 cellDir = (cell + 0.5) / gridSize;
+    cellDir = normalize(cellDir);
+    float angular = max(0.0, dot(d, cellDir)); // 1.0 when aligned
+    float shape = pow(angular, 80.0);
+
+    return starMask * intensity * shape * 2.0;
+}
+
+vec4 color_sky(vec3 rd)
+{
+    vec3 base = getSkyColor(rd);
+    base *= sky_brightness; // adjusts the brightness so it blends together
+
+    float starIntensity = getStarIntensity(rd);
+
+    // get rid of the stars during the day
+    float starFade = 1.0 - smoothstep(0.2, 0.8, sky_brightness);
+
+    base += vec3(starIntensity) * starFade;
+    return vec4(base, 1.0);
 }
 
 //sample the height map with an xz pos
@@ -147,15 +191,37 @@ float height_map(vec2 pos)
 
 void move_camera(inout Camera cam)
 {
-    //TODO - add camera movement from keyboard
+    // Try to read persistent position from Buffer A (iChannel1)
+    vec3 camPos = texelFetch(iChannel1, ivec2(0, 0), 0).xyz;
 
-    //moves cam forward constant atm to test terrain
-    float speed = 8.0f;
-    float z = iTime *speed;
-    float y = max_terrain_height * .66f;
-    cam.pos = vec3(0.0f, y, z);
-    cam.forward = vec3(-0.5, 0.0, 0.5);    
-    cam.up = vec3(0.0, 1.0, 0.0);
+    bool valid = (length(camPos) > 0.0001);
+
+    // Fallback to panning camera (VS Code)
+    if (!valid)
+    {
+        cam.pos     = vec3(0.0f, max_terrain_height * 0.66f, iTime * 8.0f);
+        cam.forward = normalize(vec3(-0.5, 0.0, 0.5));
+        cam.up      = vec3(0.0, 1.0, 0.0);
+        return;
+    }
+
+    vec2 m = iMouse.xy / iResolution.xy;
+
+    float yaw   = (m.x - 0.5) * 6.2831853;   // [-π, π]
+    float pitch = (m.y - 0.5) * 1.2;
+
+    vec3 forward;
+    forward.x = cos(pitch) * sin(yaw);
+    forward.y = sin(pitch);
+    forward.z = cos(pitch) * cos(yaw);
+
+    vec3 up = vec3(0.0, 1.0, 0.0);
+    vec3 right = normalize(cross(up, forward));
+    up = normalize(cross(forward, right));
+
+    cam.pos     = camPos;
+    cam.forward = normalize(forward);
+    cam.up      = up;
 }
 
 //tests if voxel is a terrain voxel
@@ -177,11 +243,26 @@ bool hit_terrain(inout RaycastHit hit, vec3 voxel)
 }
 
 bool hit_clouds(inout RaycastHit hit, vec3 voxel)
-{    
-    //TODO - test if current voxel is a cloud voxel
-   
+{
+    // only add clouds to the sky
+    if(voxel.y < cloud_base_height - cloud_thickness || voxel.y > cloud_base_height + cloud_thickness)
+    {
+        return false;
+    }
+
+    vec2 p = voxel.xz * cloud_noise_scale + iTime * 0.02 * cloud_wind_speed;
+    float n = perlin2D(p); // uses perlin but may want to consider other methods
+
+    if(n > cloud_threshold)
+    {
+        hit.cube.type = 1;
+        hit.cube.color = vec4(0.75, 0.75, 0.80, 0.55); // can be adjsuted (would be cool to add different kinds of weather)
+        return true;
+    }
+
     return false;
 }
+
 
 bool hit_water(inout RaycastHit hit, vec3 voxel)
 {
@@ -292,9 +373,14 @@ vec4 color_cube(in Ray ray)
         //clouds = 1
         else if(hit.cube.type == 1)
         {
-            //TODO - anything extra with cloud coloring
-            return hit.cube.color;
+            // since the clouds are transpareent we need to blend the cloud color and sky color together
+            vec4 sky = color_sky(ray.dir);
+            float a = hit.cube.color.a;
+            vec3 col = mix(sky.rgb, hit.cube.color.rgb, a);
+
+            return vec4(col, 1.0);
         }
+
         //water = 2
         else if (hit.cube.type == 2)
         {
@@ -357,25 +443,23 @@ vec4 color_cube(in Ray ray)
 }
 
 
-vec4 draw_clouds(in Ray ray)
-{
-    //TODO - draw clouds here
-
-    return vec4(0.0, 0.0, 0.0, 1.0);
-}
 
 void day_night_cycle()
 {
-    //move the sun/moon around xy unit circle
-    vec3 sun_position = vec3(cos(1.57 + iTime * 0.25f), sin(1.57 + iTime * 0.25f), 0.0f);
+    // move the sun/moon around xy unit circle
+    vec3 sun_position = vec3(cos(1.57 + iTime * 0.25), sin(1.57 + iTime * 0.25), 0.0);
     sun.dir = -sun_position;
-    sun.dir.z = 1.0f;
+    sun.dir.z = 1.0;
 
     sun.dir = normalize(sun.dir);
     moon.dir = -sun.dir;
 
     is_day = sun_position.y > 0.0;
+
+    // for the sky colors
+    sky_brightness = clamp(sun_position.y * 0.5 + 0.5, 0.0, 1.0);
 }
+
 
 void mainImage( out vec4 fragColor, in vec2 fragCoord )
 {    
@@ -408,8 +492,9 @@ void mainImage( out vec4 fragColor, in vec2 fragCoord )
     //nothing was hit
     if(color.x == -1.0)
     {
-        color += color_sky();
+        color = color_sky(ray.dir);
     }
+
     
     // Output to screen
      fragColor = color;

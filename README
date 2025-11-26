@@ -1,0 +1,9 @@
+ShaderToy SetUp:
+
+1. Paste shader.glsl into Image
+    a. Set noise.png to iChannel0
+    b. Set Buffer A to iChannel1
+2. Paste helper.glsl into Common
+3. Paste bufferA.glsl into Buffer A
+    a. Set Buffer A to iChannel0
+    b. Set Keyboard to iChannel1

@@ -9,6 +9,13 @@ float hash21(vec2 p) {
     return fract(p.x * p.y);
 }
 
+// ---- small 3D->1D hash for pseudo-randomness ----
+float hash13(vec3 p) {
+    p = fract(p * 0.1031);
+    p += dot(p, p.yzx + 33.33);
+    return fract((p.x + p.y) * p.z);
+}
+
 // Turn hash into a random 2D gradient on the unit circle
 vec2 grad2(vec2 ip) {
     float a = hash21(ip) * 6.2831853; // 2*pi
