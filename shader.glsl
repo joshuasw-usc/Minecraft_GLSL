@@ -48,6 +48,7 @@ int WATER = 2;
 int DESERT = 3;
 int TUNDRA = 4;
 int CAVE = 5;
+int CRATES = 6;
 
 bool enable_clouds = true;
 bool enable_terrain = true;
@@ -63,6 +64,7 @@ float sky_brightness = 0.0;
 float max_terrain_height = 45.0f;
 float terrain_frequency = 0.02f;
 float water_height = 20.0f;
+float water_depth = 7.5f;
 float reflection_strength = 0.1f;
 int max_voxel_steps = 1024;
 vec4 water_color = vec4(.1, .3, .42, 1.0);
@@ -70,9 +72,10 @@ float temp_frequency = 0.005f;
 float wet_frequency = 0.005f;
 float cave_frequency = 0.01f;
 
+
 vec4 fog = vec4(0.8, 0.8, 1.0, 1.0);
-float fog_start = 25.0f;
-float fog_end = 500.0f;
+float fog_start = 50.0f;
+float fog_end = 150.0f;
 float day_night_speed = 0.1f;
 float cloud_base_height = 150.0;
 float cloud_thickness  = 5.0;
@@ -157,7 +160,6 @@ vec3 world_point_from_intersection( in Ray ray, in float depth)
 {
     return ray.pos + ray.dir * depth;
 }
-
 
 // combines different colors for the sky (makes it look like sunrise/sunset)
 vec3 getSkyColor(vec3 rd)
@@ -264,6 +266,45 @@ void move_camera(inout Camera cam)
     cam.forward = normalize(forward);
     cam.up      = up;
 }
+int get_biome(vec2 xz)
+{
+    //also sample for temp/wet noise w/ some arbitrary offset
+    float temp = perlin2D(xz * temp_frequency + vec2(105.0));
+    float wet = perlin2D(xz * wet_frequency + vec2(-943.0));
+    if(temp >= 0.5 && wet >= 0.5)
+    {
+        //default biome
+        return DEFAULT;
+    }
+    else if(temp >= 0.5 && wet < 0.5)
+    {
+        //desert biome
+        return DESERT;
+    }
+    else if(temp < 0.5)
+    {
+        return TUNDRA;
+    }
+
+    return DEFAULT;
+}
+
+bool hit_crate(inout RaycastHit hit, vec3 voxel)
+{
+    //copy&pasted from hit_terrain
+    //add 1 unit for the crate
+    float height = height_map(voxel.xz) + 1.0; 
+
+    int biome = get_biome(voxel.xz);
+    //adding crates to TUNDRA
+    float noise = whiteNoise2D(voxel.xz);
+    if(biome == TUNDRA && noise > 0.995 && float(voxel.y) < height && voxel.y > water_height)
+    {
+        hit.cube.type = CRATES;
+        return true;
+    }
+    return false;
+}
 
 //tests if voxel is a terrain voxel
 bool hit_terrain(inout RaycastHit hit, vec3 voxel)
@@ -271,29 +312,9 @@ bool hit_terrain(inout RaycastHit hit, vec3 voxel)
     //samples "infinite" perlin noise atm using helper function
     //will prob choose a different noise to use  
     float height = height_map(voxel.xz);
-
-    //also sample for temp/wet noise w/ some arbitrary offset
-    float temp = perlin2D(voxel.xz * temp_frequency + vec2(105.0));
-    float wet = perlin2D(voxel.xz * wet_frequency + vec2(-943.0));
-
     if(float(voxel.y) < height && voxel.y >= 0.0) 
     {
-        //TODO - determine biome to set type, color, etc.
-        if(temp >= 0.5 && wet >= 0.5)
-        {
-            //default biome
-            hit.cube.type = DEFAULT;
-        }
-        else if(temp >= 0.5 && wet < 0.5)
-        {
-            //desert biome
-            hit.cube.type = DESERT;
-        }
-        else if(temp < 0.5)
-        {
-            hit.cube.type = TUNDRA;
-        }
-       
+        hit.cube.type = get_biome(voxel.xz);
         hit.cube.color = vec4(74.0/255.0, 23.0/255.0, 0.0, 1.0); 
         return true;    
     }
@@ -391,8 +412,8 @@ RaycastHit raycast_voxels(in Ray ray, int ignoreMask)
         bool clouds = enable_clouds && hit.cube.type == -1 && (ignoreMask & CLOUDS) == 0  ? hit_clouds(hit, vec3(voxel)) : false;    
         bool water = enable_water && hit.cube.type == -1 && (ignoreMask & WATER) == 0 ? hit_water(hit, vec3(voxel)) : false;
         bool cave = enable_caves && hit.cube.type == -1 && (ignoreMask & WATER) == 0 ? hit_cave(hit, vec3(voxel)) : false;
-
-        if(terrain || clouds || water || cave)
+        bool crate = hit.cube.type == -1 && (ignoreMask & CRATES) == 0 ? hit_crate(hit, vec3(voxel)) : false;
+        if(terrain || clouds || water || cave || crate)
         {
             //set the required fields of RaycastHit structs
             hit.cube.pos = vec3(voxel) + vec3(0.5);
@@ -470,13 +491,17 @@ vec4 get_biome_ambient(in RaycastHit hit)
         float value = sample_cube(iChannel0, hit).r;
         ambient = vec4(0.5, 0.5, 0.5, 1.0) * value;
     }
+    else if(hit.cube.type == CRATES)
+    {
+        ambient =  vec4(0.61, 0.376, 0, 1.0);
+    }
 
     return ambient;
 }
 
 bool is_biome(int type)
 {
-    return type == DEFAULT || type == TUNDRA || type == DESERT || type == CAVE;
+    return type == DEFAULT || type == TUNDRA || type == DESERT || type == CAVE || type == CRATES;
 }
 vec4 color_cube(in Ray ray)
 {
@@ -518,7 +543,7 @@ vec4 color_cube(in Ray ray)
             vec4 water_color = vec4(getSkyColor(reflected), 1.0);
 
             //mix sand and water color
-            color += mix(sand_color, water_color, clamp(water_hit.distance / water_height, 0.0, 1.0));
+            color += mix(sand_color, water_color, clamp(water_hit.distance / water_depth, 0.0, 1.0));
         }
 
         //LIGHTS + SHADOWS

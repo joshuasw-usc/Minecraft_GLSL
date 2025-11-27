@@ -28,6 +28,11 @@ float fade(float t) {
     return t * t * t * (t * (t * 6.0 - 15.0) + 10.0);
 }
 
+float whiteNoise2D(vec2 pos)
+{
+    return hash21(floor(pos));
+}
+
 // Infinite 2D Perlin-like noise
 float perlin2D(vec2 p) {
     // Lattice coords
