@@ -8,7 +8,7 @@
 
 struct Ray
 {
-    vec3 pos;
+     vec3 pos;
     vec3 dir;
 };
 
@@ -49,21 +49,27 @@ int DESERT = 3;
 int TUNDRA = 4;
 int CAVE = 5;
 
+bool enable_clouds = false;
+bool enable_terrain = true;
+bool enable_water = true;
+bool enable_caves = true;
+bool test_caves = false;
+
 //Yellow directional light
 DirectionalLight sun = DirectionalLight(vec3(0.333, -0.333, 0.333), vec4(1.0, 0.9, .3, 1.0)*0.5f);
 DirectionalLight moon = DirectionalLight(vec3(0.333, -0.333, 0.333), vec4(145.0/255.0,163.0/255.0,176.0/255.0, 1.0));
 bool is_day = false;
 float sky_brightness = 0.0;
-float max_terrain_height = 120.0f;
-float terrain_frequency = 0.01f;
-float water_height = 55.0f;
-float reflection_strength = 0.66f;
+float max_terrain_height = 45.0f;
+float terrain_frequency = 0.02f;
+float water_height = 20.0f;
+float reflection_strength = 0.1f;
 int max_voxel_steps = 1024;
 vec4 water_color = vec4(.1, .3, .42, 1.0);
 float temp_frequency = 0.005f;
 float wet_frequency = 0.005f;
 float cave_frequency = 0.01f;
-bool test_caves = false;
+
 vec4 fog = vec4(0.8, 0.8, 1.0, 1.0);
 float fog_start = 25.0f;
 float fog_end = 500.0f;
@@ -123,7 +129,7 @@ vec3 normal_cube(in Cube cube, in vec3 world_point)
 
 
 //samples 2d noise volume 
-vec4 sample_cube(in RaycastHit hit)
+vec4 sample_cube(in sampler2D sampler, in RaycastHit hit)
 {
     float max_distance = 100.0f;
     //return vec4(1.0, 0.0, 0.0, 1.0);
@@ -132,18 +138,18 @@ vec4 sample_cube(in RaycastHit hit)
     float scale = 1.0 - clamp(hit.distance / max_distance, 0.0, 1.0);
     scale = clamp(scale, 0.01, 1.0);
     vec3 p = hit.point - hit.cube.pos;
-    float lod = clamp(hit.distance, 0.0, 10.0);
+   
     if(abs(p.z) <= 0.50001 && abs(p.z) >= 0.4999)
     {
-        return textureLod(iChannel0, p.xy * scale, lod);
+        return texture(sampler, p.xy * scale);
     }
     else if(abs(p.x) <= 0.50001 && abs(p.x) >= 0.4999)
     {
-        return textureLod(iChannel0, p.yz* scale, lod);
+        return texture(sampler, p.yz* scale);
     }
     else 
     {
-        return textureLod(iChannel0, p.xz* scale, lod);
+        return texture(sampler, p.xz* scale);
     }
 }
 
@@ -346,14 +352,13 @@ bool hit_water(inout RaycastHit hit, vec3 voxel)
 //Uses Amanatides/Woo algorithm for voxel traversal along a ray
 //Returns a RaycastHit struct similar to Unity
 //https://www.cs.yorku.ca/~amana/research/grid.pdf
-RaycastHit raycast_voxels(in Ray ray)
+RaycastHit raycast_voxels(in Ray ray, int ignoreMask)
 {
     RaycastHit hit;
     hit.hit = false;
     hit.cube.type = -1;
 
-    float t = 0.0f;
-    
+    float t = 0.0f;   
 
     //initialization phase: described on page 2
     //---
@@ -382,10 +387,10 @@ RaycastHit raycast_voxels(in Ray ray)
     //set a max steps in case nothing is hit
     for(int i = 0; i < max_voxel_steps; i++)
     {
-        bool terrain = hit_terrain(hit, vec3(voxel));
-        bool clouds = hit.cube.type == -1 ? hit_clouds(hit, vec3(voxel)) : false;    
-        bool water = hit.cube.type == -1 ? hit_water(hit, vec3(voxel)) : false;
-        bool cave = hit.cube.type == -1 ? hit_cave(hit, vec3(voxel)) : false;
+        bool terrain = enable_terrain && (ignoreMask & DEFAULT) == 0 ? hit_terrain(hit, vec3(voxel)) : false;
+        bool clouds = enable_clouds && hit.cube.type == -1 && (ignoreMask & CLOUDS) == 0  ? hit_clouds(hit, vec3(voxel)) : false;    
+        bool water = enable_water && hit.cube.type == -1 && (ignoreMask & WATER) == 0 ? hit_water(hit, vec3(voxel)) : false;
+        bool cave = enable_caves && hit.cube.type == -1 && (ignoreMask & WATER) == 0 ? hit_cave(hit, vec3(voxel)) : false;
 
         if(terrain || clouds || water || cave)
         {
@@ -424,42 +429,69 @@ RaycastHit raycast_voxels(in Ray ray)
 }
 
 
+vec4 color_tundra(in RaycastHit hit)
+{
+    float value = sample_cube(iChannel0, hit).r;
+    vec4 ambient;
+    vec4 ice_blue = vec4(0.671, 0.89, 1.0, 1.0);
+    vec4 white = vec4(1.0, 1.0, 1.0, 1.0);
+    return mix(white, ice_blue, value);
+}
 
+vec4 get_biome_ambient(in RaycastHit hit)
+{
+    vec4 ambient = vec4(0.0, 0.0, 0.0, 1.0);
+    if(!hit.hit){ return ambient;}
+
+    bool biome_cube = hit.cube.type == DEFAULT
+            || hit.cube.type == TUNDRA
+            || hit.cube.type == DESERT
+            || hit.cube.type == CAVE;
+    
+    if(hit.cube.type == DEFAULT)
+    {
+        float value = sample_cube(iChannel0, hit).r;
+        ambient = vec4(0.58, 0.29, 0.0, 1.0) * value;
+    }
+    else if(hit.cube.type == DESERT)
+    {
+        float value = sample_cube(iChannel0, hit).r;
+        ambient = vec4(1.0, .804, .604, 1.0) * value;
+    }        
+    else if(hit.cube.type == TUNDRA)
+    {
+        float value = sample_cube(iChannel0, hit).r;    
+        vec4 ice_blue = vec4(0.671, 0.89, 1.0, 1.0);
+        vec4 white = vec4(1.0, 1.0, 1.0, 1.0);
+        ambient = mix(white, ice_blue, value);
+    }
+    else if(hit.cube.type == CAVE)
+    {
+        float value = sample_cube(iChannel0, hit).r;
+        ambient = vec4(0.5, 0.5, 0.5, 1.0) * value;
+    }
+
+    return ambient;
+}
+
+bool is_biome(int type)
+{
+    return type == DEFAULT || type == TUNDRA || type == DESERT || type == CAVE;
+}
 vec4 color_cube(in Ray ray)
 {
-    RaycastHit hit = raycast_voxels(ray);
+    RaycastHit hit = raycast_voxels(ray, 0);
     vec4 color = vec4(0.0, 0.0, 0.0, 1.0);
 
     if(hit.hit)
     { 
         //default ground is type0 
 
-        bool biome_cube = hit.cube.type == DEFAULT
-            || hit.cube.type == TUNDRA
-            || hit.cube.type == DESERT
-            || hit.cube.type == CAVE;
+        bool biome_cube = is_biome(hit.cube.type);
         //COLOR + TEXTURES
         if(biome_cube)
         {
-            float value = sample_cube(hit).r;
-            vec4 ambient;
-            if(hit.cube.type == DEFAULT)
-            {
-                ambient = vec4(0.58, 0.29, 0.0, 1.0) * value;
-            }
-            else if(hit.cube.type == DESERT)
-            {
-                ambient = vec4(1.0, .804, .604, 1.0) * value;
-            }        
-            else if(hit.cube.type == TUNDRA)
-            {
-                ambient = vec4(1.0, 1.0, 1.0, 1.0) * value;
-            }
-            else if(hit.cube.type == CAVE)
-            {
-                ambient = vec4(0.5, 0.5, 0.5, 1.0) * value;
-            }
-            color += ambient;              
+            color += get_biome_ambient(hit);
         }
         //clouds = 1
         else if(hit.cube.type == CLOUDS)
@@ -474,7 +506,19 @@ vec4 color_cube(in Ray ray)
         //water = 2
         else if (hit.cube.type == WATER)
         {
-            color += hit.cube.color;
+            //color += hit.cube.color;
+            
+            //shoot a second ray to get biome
+            Ray water_ray = Ray(hit.point, ray.dir);
+            RaycastHit water_hit = raycast_voxels(water_ray, (WATER));
+
+            //colors
+            vec4 sand_color = get_biome_ambient(water_hit);
+            vec3 reflected = normalize((ray.dir - (2.0f * dot(ray.dir, hit.normal) * hit.normal)));
+            vec4 water_color = vec4(getSkyColor(reflected), 1.0);
+
+            //mix sand and water color
+            color += mix(sand_color, water_color, clamp(water_hit.distance / water_height, 0.0, 1.0));
         }
 
         //LIGHTS + SHADOWS
@@ -491,7 +535,7 @@ vec4 color_cube(in Ray ray)
             }
             //shadows
             Ray shadow_ray = Ray(hit.point - light.dir * 0.001, -light.dir);
-            RaycastHit shadow_hit = raycast_voxels(shadow_ray); 
+            RaycastHit shadow_hit = raycast_voxels(shadow_ray, 0); 
 
             //for caves - if max_steps is reached assume NO light/shadows         
             if(!shadow_hit.hit && !(hit.cube.type == CAVE && shadow_hit.maxed_out))
@@ -509,15 +553,15 @@ vec4 color_cube(in Ray ray)
             //basic reflection that supports 1 bounce only
             vec3 reflected = normalize((ray.dir - (2.0f * dot(ray.dir, hit.normal) * hit.normal)));
             Ray reflected_ray = Ray(hit.point + reflected * 0.001f, reflected);
-            RaycastHit reflected_hit = raycast_voxels(reflected_ray);
+            RaycastHit reflected_hit = raycast_voxels(reflected_ray, 0);
 
             //can't do recursion, can cleanup code later for better reflection
             if(reflected_hit.hit)
             {
-                if(reflected_hit.cube.type == 0)
+                if(is_biome(reflected_hit.cube.type))
                 {
-                    float value = sample_cube(reflected_hit).r;
-                    vec4 ambient = reflected_hit.cube.color * value;
+                    //float value = sample_cube(iChannel0, reflected_hit).r;
+                    vec4 ambient = get_biome_ambient(reflected_hit);
                     color += ambient * reflection_strength;           
                 }
                 else
