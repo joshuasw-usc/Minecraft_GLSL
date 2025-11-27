@@ -49,7 +49,7 @@ int DESERT = 3;
 int TUNDRA = 4;
 int CAVE = 5;
 
-bool enable_clouds = false;
+bool enable_clouds = true;
 bool enable_terrain = true;
 bool enable_water = true;
 bool enable_caves = true;
