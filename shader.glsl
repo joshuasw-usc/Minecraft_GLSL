@@ -48,7 +48,8 @@ int WATER = 2;
 int DESERT = 3;
 int TUNDRA = 4;
 int CAVE = 5;
-int CRATES = 6;
+int TREE_TRUNK = 6;
+int TREE_LEAVES = 7;
 
 bool enable_clouds = true;
 bool enable_terrain = true;
@@ -64,9 +65,9 @@ float sky_brightness = 0.0;
 float max_terrain_height = 45.0f;
 float terrain_frequency = 0.02f;
 float water_height = 20.0f;
-float water_depth = 7.5f;
-float reflection_strength = 0.1f;
-int max_voxel_steps = 1024;
+float water_depth = 5.0f;
+float reflection_strength = 0.075f;
+int max_voxel_steps = 1025;
 vec4 water_color = vec4(.1, .3, .42, 1.0);
 float temp_frequency = 0.005f;
 float wet_frequency = 0.005f;
@@ -237,11 +238,11 @@ void move_camera(inout Camera cam)
         
         if(test_caves)
         {
-            cam.pos     = vec3(0.0f, -500.5f, iTime * 8.0f);
+            cam.pos     = vec3(0.0f, -500.5f, iTime * 6.0f);
         }
         else
         {
-            cam.pos     = vec3(0.0f, max_terrain_height * 0.66f, iTime * 8.0f);
+            cam.pos     = vec3(0.0f, max_terrain_height * 0.66f, iTime * 6.0f);
         }        
         cam.forward = normalize(vec3(-0.5, 0.0, 0.5));
         cam.up      = vec3(0.0, 1.0, 0.0);
@@ -289,20 +290,62 @@ int get_biome(vec2 xz)
     return DEFAULT;
 }
 
-bool hit_crate(inout RaycastHit hit, vec3 voxel)
+bool hit_tree(inout RaycastHit hit, vec3 voxel)
 {
+    float trees_height = 3.0;
     //copy&pasted from hit_terrain
     //add 1 unit for the crate
-    float height = height_map(voxel.xz) + 1.0; 
+  
 
     int biome = get_biome(voxel.xz);
-    //adding crates to TUNDRA
-    float noise = whiteNoise2D(voxel.xz);
-    if(biome == TUNDRA && noise > 0.995 && float(voxel.y) < height && voxel.y > water_height)
+
+    if(biome != TUNDRA)
     {
-        hit.cube.type = CRATES;
+        return false;
+    }
+
+    //trees can occupy nxn space
+    float tree_cell_size = 8.0;
+
+    vec2 xz = floor(voxel.xz);
+    vec2 cell = floor(xz / tree_cell_size);
+    float noise = whiteNoise2D(cell);
+    float tree_threshold = 0.9f;
+    if(noise < tree_threshold)
+    {
+        return false;
+    }
+
+    float leaves_radius = 2.0f;
+    vec2 cell_origin = cell * tree_cell_size;
+    vec2 offset = vec2(hash21(cell+ 3.14) , hash21(cell+ 9.72));
+    vec2 trunk_xz = vec2(leaves_radius) +
+         floor(cell_origin + offset * (tree_cell_size - leaves_radius * 2.0));
+
+    float tree_base_height = floor(height_map(trunk_xz)); 
+    if(tree_base_height <= water_height)
+    {
+        return false;
+    }
+    vec3 trunk_top = floor(vec3(trunk_xz.x, tree_base_height + trees_height, trunk_xz.y));
+    
+    //a tree is in this nxn space
+    if(xz == trunk_xz 
+        && voxel.y >= tree_base_height 
+        && voxel.y <= tree_base_height + trees_height)
+    {
+        hit.hit = true;
+        hit.cube.type = TREE_TRUNK; 
         return true;
     }
+    else if(distance(voxel, trunk_top) < leaves_radius)
+    {
+         hit.hit = true;
+        hit.cube.type = TREE_LEAVES; 
+        return true;
+    }
+    
+
     return false;
 }
 
@@ -412,7 +455,7 @@ RaycastHit raycast_voxels(in Ray ray, int ignoreMask)
         bool clouds = enable_clouds && hit.cube.type == -1 && (ignoreMask & CLOUDS) == 0  ? hit_clouds(hit, vec3(voxel)) : false;    
         bool water = enable_water && hit.cube.type == -1 && (ignoreMask & WATER) == 0 ? hit_water(hit, vec3(voxel)) : false;
         bool cave = enable_caves && hit.cube.type == -1 && (ignoreMask & WATER) == 0 ? hit_cave(hit, vec3(voxel)) : false;
-        bool crate = hit.cube.type == -1 && (ignoreMask & CRATES) == 0 ? hit_crate(hit, vec3(voxel)) : false;
+        bool crate = (ignoreMask & TREE_TRUNK) == 0 ? hit_tree(hit, vec3(voxel)) : false;
         if(terrain || clouds || water || cave || crate)
         {
             //set the required fields of RaycastHit structs
@@ -491,9 +534,36 @@ vec4 get_biome_ambient(in RaycastHit hit)
         float value = sample_cube(iChannel0, hit).r;
         ambient = vec4(0.5, 0.5, 0.5, 1.0) * value;
     }
-    else if(hit.cube.type == CRATES)
+    else if(hit.cube.type == TREE_TRUNK)
     {
-        ambient =  vec4(0.61, 0.376, 0, 1.0);
+        float value = sample_cube(iChannel0, hit).r;
+        vec4 dark_brown = vec4(0.349, 0.2157, 0.0, 1.0);
+        vec4 light_brown = vec4(0.61, 0.376, 0, 1.0);
+        vec4 snow = vec4(1.0, 1.0, 1.0, 1.0);
+        float snow_threshold = 0.75;
+        if(value <= snow_threshold)
+        {
+            ambient = mix(dark_brown, light_brown, value / snow_threshold);
+        }
+        else{
+            ambient =  mix(light_brown, snow, (value - snow_threshold) / (1.0 - snow_threshold));
+        }
+        
+    }
+    else if(hit.cube.type == TREE_LEAVES)
+    {
+       float value = sample_cube(iChannel0, hit).r;
+       vec4 dark_leaves = vec4(0.0, 0.8118, 0.0549, 1.0);
+       vec4 light_leaves = vec4(0.0, 0.8118, 0.0549, 1.0);
+       vec4 snow = vec4(1.0, 1.0, 1.0, 1.0);
+       float snow_threshold = 0.1;
+       if(value <= snow_threshold)
+       {
+           ambient = mix(dark_leaves, light_leaves, value / snow_threshold);
+       }
+       else{
+           ambient =  mix(light_leaves, snow, (value - snow_threshold) / (1.0 - snow_threshold));
+       }
     }
 
     return ambient;
@@ -501,7 +571,12 @@ vec4 get_biome_ambient(in RaycastHit hit)
 
 bool is_biome(int type)
 {
-    return type == DEFAULT || type == TUNDRA || type == DESERT || type == CAVE || type == CRATES;
+    return type == DEFAULT 
+    || type == TUNDRA 
+    || type == DESERT 
+    || type == CAVE 
+    || type == TREE_TRUNK
+    || type == TREE_LEAVES;
 }
 vec4 color_cube(in Ray ray)
 {
