@@ -66,7 +66,7 @@ float max_terrain_height = 45.0f;
 float terrain_frequency = 0.02f;
 float water_height = 20.0f;
 float water_depth = 5.0f;
-float reflection_strength = 0.075f;
+float reflection_strength = 0.1f;
 int max_voxel_steps = 1025;
 vec4 water_color = vec4(.1, .3, .42, 1.0);
 float temp_frequency = 0.005f;
@@ -658,15 +658,17 @@ vec4 color_cube(in Ray ray)
             //can't do recursion, can cleanup code later for better reflection
             if(reflected_hit.hit)
             {
+                 float dist_fade = 1.0 - smoothstep(5.0, 512.0, reflected_hit.distance);
                 if(is_biome(reflected_hit.cube.type))
                 {
                     //float value = sample_cube(iChannel0, reflected_hit).r;
                     vec4 ambient = get_biome_ambient(reflected_hit);
-                    color += ambient * reflection_strength;           
+                   
+                    color += ambient * reflection_strength * dist_fade;           
                 }
                 else
                 {
-                    color += reflected_hit.cube.color * reflection_strength;
+                    color += reflected_hit.cube.color * reflection_strength* dist_fade;
                 }                
             }           
         }
