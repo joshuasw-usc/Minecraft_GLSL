@@ -54,7 +54,8 @@ int TREE_LEAVES = 7;
 bool enable_clouds = true;
 bool enable_terrain = true;
 bool enable_water = true;
-bool enable_caves = true;
+bool enable_reflections = false;
+bool enable_shadows = false;
 bool test_caves = false;
 
 //Yellow directional light
@@ -454,7 +455,7 @@ RaycastHit raycast_voxels(in Ray ray, int ignoreMask)
         bool terrain = enable_terrain && (ignoreMask & DEFAULT) == 0 ? hit_terrain(hit, vec3(voxel)) : false;
         bool clouds = enable_clouds && hit.cube.type == -1 && (ignoreMask & CLOUDS) == 0  ? hit_clouds(hit, vec3(voxel)) : false;    
         bool water = enable_water && hit.cube.type == -1 && (ignoreMask & WATER) == 0 ? hit_water(hit, vec3(voxel)) : false;
-        bool cave = enable_caves && hit.cube.type == -1 && (ignoreMask & WATER) == 0 ? hit_cave(hit, vec3(voxel)) : false;
+        bool cave = test_caves && hit.cube.type == -1 && (ignoreMask & WATER) == 0 ? hit_cave(hit, vec3(voxel)) : false;
         bool crate = (ignoreMask & TREE_TRUNK) == 0 ? hit_tree(hit, vec3(voxel)) : false;
         if(terrain || clouds || water || cave || crate)
         {
@@ -633,22 +634,25 @@ vec4 color_cube(in Ray ray)
             {
                 light = moon;
             }
-            //shadows
-            Ray shadow_ray = Ray(hit.point - light.dir * 0.001, -light.dir);
-            RaycastHit shadow_hit = raycast_voxels(shadow_ray, 0); 
 
-            //for caves - if max_steps is reached assume NO light/shadows         
-            if(!shadow_hit.hit && !(hit.cube.type == CAVE && shadow_hit.maxed_out))
+            //shadows
+            if(enable_shadows)
             {
-                //no lighting    
-                vec4 diffuse = light.color * max(0.0, dot(hit.normal, -light.dir));
-                color += diffuse;        
-            }        
-        }
-        
+                Ray shadow_ray = Ray(hit.point - light.dir * 0.001, -light.dir);
+                RaycastHit shadow_hit = raycast_voxels(shadow_ray, 0); 
+
+                //for caves - if max_steps is reached assume NO light/shadows         
+                if(!shadow_hit.hit && !(hit.cube.type == CAVE && shadow_hit.maxed_out))
+                {
+                    //no lighting    
+                    vec4 diffuse = light.color * max(0.0, dot(hit.normal, -light.dir));
+                    color += diffuse;        
+                } 
+            }                   
+        }        
 
         //REFLECTION
-        if(hit.cube.type == WATER)
+        if(hit.cube.type == WATER && enable_reflections)
         {
             //basic reflection that supports 1 bounce only
             vec3 reflected = normalize((ray.dir - (2.0f * dot(ray.dir, hit.normal) * hit.normal)));
