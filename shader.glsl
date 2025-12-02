@@ -48,8 +48,10 @@ int WATER = 2;
 int DESERT = 3;
 int TUNDRA = 4;
 int CAVE = 5;
-int TREE_TRUNK = 6;
-int TREE_LEAVES = 7;
+int TUNDRA_TREE_TRUNK = 6;
+int TUNDRA_TREE_LEAVES = 7;
+int DEFAULT_TREE_TRUNK = 8;
+int DEFAULT_TREE_LEAVES = 9;
 
 bool enable_clouds = true;
 bool enable_terrain = true;
@@ -68,7 +70,7 @@ float terrain_frequency = 0.02f;
 float water_height = 20.1f;
 float water_depth = 5.0f;
 float reflection_strength = 0.1f;
-int max_voxel_steps = 1025;
+int max_voxel_steps = 100;
 vec4 water_color = vec4(.1, .3, .42, 1.0);
 float temp_frequency = 0.005f;
 float wet_frequency = 0.005f;
@@ -334,7 +336,7 @@ bool hit_tree(inout RaycastHit hit, vec3 voxel)
 
     int biome = get_biome(voxel.xz);
 
-    if(biome != TUNDRA)
+    if(biome != TUNDRA && biome != DEFAULT)
     {
         return false;
     }
@@ -370,13 +372,19 @@ bool hit_tree(inout RaycastHit hit, vec3 voxel)
         && voxel.y <= tree_base_height + trees_height)
     {
         hit.hit = true;
-        hit.cube.type = TREE_TRUNK; 
+        if (biome == TUNDRA)
+            hit.cube.type = TUNDRA_TREE_TRUNK; 
+        else
+            hit.cube.type = DEFAULT_TREE_TRUNK; 
         return true;
     }
     else if(distance(voxel, trunk_top) < leaves_radius)
     {
-         hit.hit = true;
-        hit.cube.type = TREE_LEAVES; 
+        hit.hit = true;
+        if (biome == TUNDRA)
+            hit.cube.type = TUNDRA_TREE_LEAVES; 
+        else   
+            hit.cube.type = DEFAULT_TREE_LEAVES; 
         return true;
     }
     
@@ -490,7 +498,7 @@ RaycastHit raycast_voxels(in Ray ray, int ignoreMask)
         bool clouds = enable_clouds && hit.cube.type == -1 && (ignoreMask & CLOUDS) == 0  ? hit_clouds(hit, vec3(voxel)) : false;    
         bool water = enable_water && hit.cube.type == -1 && (ignoreMask & WATER) == 0 ? hit_water(hit, vec3(voxel)) : false;
         bool cave = test_caves && hit.cube.type == -1 && (ignoreMask & WATER) == 0 ? hit_cave(hit, vec3(voxel)) : false;
-        bool crate = (ignoreMask & TREE_TRUNK) == 0 ? hit_tree(hit, vec3(voxel)) : false;
+        bool crate = (ignoreMask & (TUNDRA_TREE_TRUNK | DEFAULT_TREE_TRUNK)) == 0 ? hit_tree(hit, vec3(voxel)) : false;
         if(terrain || clouds || water || cave || crate)
         {
             //set the required fields of RaycastHit structs
@@ -552,6 +560,17 @@ vec4 color_dark_trunk(float value)
     vec4 brown_2 = vec4(39.0/255.0, 25.0/255.0, 11.0/255.0, 1.0);
     return value < .33f ? brown_0 : value < 0.66f ? brown_1 : brown_2;
 }
+
+vec4 color_light_trunk(float value)
+{
+    vec4 trunk_0 = vec4(0.26, 0.20, 0.10, 1.0);  // was 0.20, 0.14, 0.07
+    vec4 trunk_1 = vec4(0.32, 0.24, 0.12, 1.0);  // unchanged midpoint
+    vec4 trunk_2 = vec4(0.38, 0.30, 0.15, 1.0);  // was 0.44, 0.34, 0.18
+
+
+    return value < 0.33 ? trunk_0 : value < 0.66 ? trunk_1 : trunk_2;
+}
+
 //maps white noise value to a snow color
 vec4 color_snow(float value)
 {
@@ -569,6 +588,14 @@ vec4 color_dark_leaves(float value)
 
     return value < 0.5f ? leaves_0 : leaves_1;   
 }
+
+vec4 color_light_leaves(float value)
+{
+    vec4 leaves_0 = vec4(0.19, 0.50, 0.17, 1.0);
+    vec4 leaves_1 = vec4(0.15, 0.40, 0.12, 1.0);
+    return value < 0.5 ? leaves_0 : leaves_1;
+}
+
 
 //maps green noise value to a grass color
 vec4 color_grass(float value)
@@ -696,15 +723,24 @@ vec4 get_biome_ambient(in RaycastHit hit)
         float value = sample_cube(iChannel0, hit).r;
         ambient = vec4(0.5, 0.5, 0.5, 1.0) * value;
     }
-    else if(hit.cube.type == TREE_TRUNK)
+    else if(hit.cube.type == TUNDRA_TREE_TRUNK)
     {
         float value = sample_cube(iChannel0, hit).r;
         ambient = color_dark_trunk(value);
-        
     }
-    else if(hit.cube.type == TREE_LEAVES)
+    else if(hit.cube.type == TUNDRA_TREE_LEAVES)
     {
-       ambient = color_tundra_tree_leaves(hit);
+        ambient = color_tundra_tree_leaves(hit);
+    }
+    else if(hit.cube.type == DEFAULT_TREE_TRUNK)
+    {
+        float value = sample_cube(iChannel0, hit).r;
+        ambient = color_light_trunk(value);
+    }
+    else if(hit.cube.type == DEFAULT_TREE_LEAVES)
+    {
+        float value = sample_cube(iChannel0, hit).r;
+        ambient = color_light_leaves(value);
     }
 
     return ambient;
@@ -716,8 +752,10 @@ bool is_biome(int type)
     || type == TUNDRA 
     || type == DESERT 
     || type == CAVE 
-    || type == TREE_TRUNK
-    || type == TREE_LEAVES;
+    || type == TUNDRA_TREE_TRUNK
+    || type == TUNDRA_TREE_LEAVES
+    || type == DEFAULT_TREE_TRUNK
+    || type == DEFAULT_TREE_LEAVES;
 }
 vec4 color_cube(in Ray ray)
 {
