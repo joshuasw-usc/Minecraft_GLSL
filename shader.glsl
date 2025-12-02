@@ -87,7 +87,7 @@ float cloud_noise_scale = 0.008;
 float cloud_threshold   = 0.6;
 float cloud_wind_speed  = 5.0;
 
-//test a ray against a cube
+//test a ray against a cube, returns distance to cube
 //based on wiki slab method: https://en.wikipedia.org/wiki/Slab_method
 float intersect_cube(in Ray ray, in Cube cube)
 {
@@ -508,22 +508,7 @@ RaycastHit raycast_voxels(in Ray ray, int ignoreMask)
             hit.point = hit.cube.pos + clamp(hit.point - hit.cube.pos,
                                  vec3(-0.5), vec3(0.5));
 
-            hit.normal = normal_cube(hit.cube, hit.point);
-            // choose face via normal
-            vec3 n  = hit.normal;
-            vec3 an = abs(n);
-            vec3 local = hit.point - hit.cube.pos;
-
-            if (an.x > an.y && an.x > an.z) {
-                local.x = 0.5 * sign(n.x);   // left/right face
-            } else if (an.y > an.x && an.y > an.z) {
-                local.y = 0.5 * sign(n.y);   // bottom/top face
-            } else {
-                local.z = 0.5 * sign(n.z);   // front/back face
-            }
-
-            hit.point = hit.cube.pos + local;
-
+            hit.normal = normal_cube(hit.cube, hit.point);       
             hit.hit = true;
             return hit;
         }
@@ -790,14 +775,16 @@ vec4 color_cube(in Ray ray)
             //shoot a second ray to get biome
             Ray water_ray = Ray(hit.point, ray.dir);
             RaycastHit water_hit = raycast_voxels(water_ray, (WATER));
-
+            
             //colors
             vec4 sand_color = get_biome_ambient(water_hit);
-            vec3 reflected = normalize((ray.dir - (2.0f * dot(ray.dir, hit.normal) * hit.normal)));
+            vec3 up = vec3(0, 1.0, 0.0);
+            vec3 reflected = normalize((ray.dir - (2.0f * dot(ray.dir, up) * up)));
             vec4 water_color = vec4(getSkyColor(reflected), 1.0);
 
             //mix sand and water color
             color += mix(sand_color, water_color, clamp(water_hit.distance / water_depth, 0.0, 1.0));
+
         }
 
         //LIGHTS + SHADOWS
