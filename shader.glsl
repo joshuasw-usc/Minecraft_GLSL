@@ -54,7 +54,7 @@ int TREE_LEAVES = 7;
 bool enable_clouds = true;
 bool enable_terrain = true;
 bool enable_water = true;
-bool enable_reflections = false;
+bool enable_reflections = true;
 bool enable_shadows = false;
 bool test_caves = false;
 
@@ -76,9 +76,9 @@ float cave_frequency = 0.01f;
 
 
 vec4 fog = vec4(0.8, 0.8, 1.0, 1.0);
-float fog_start = 50.0f;
-float fog_end = 150.0f;
-float day_night_speed = 0.1f;
+float fog_start = 25.0f;
+float fog_end = 75.0f;
+float day_night_speed = 0.05f;
 float cloud_base_height = 150.0;
 float cloud_thickness  = 5.0;
 float cloud_noise_scale = 0.008;
@@ -136,27 +136,59 @@ vec3 normal_cube(in Cube cube, in vec3 world_point)
 //samples 2d noise volume 
 vec4 sample_cube(in sampler2D sampler, in RaycastHit hit)
 {
+
+    // same check from move_camera to test if we are in shader toy
+    vec3 camPos = texelFetch(iChannel1, ivec2(0, 0), 0).xyz;
+    bool is_shader_toy = (length(camPos) > 0.0001);
+
+   
     float max_distance = 100.0f;
     //return vec4(1.0, 0.0, 0.0, 1.0);
     //map to [-.5, .5] range
 
     float scale = 1.0 - clamp(hit.distance / max_distance, 0.0, 1.0);
-    scale = clamp(scale, 0.01, 1.0);
+    scale = 1.0; //clamp(scale, 0.01, 1.0);
     vec3 p = hit.point - hit.cube.pos;
+
+    vec2 uv;
    
     if(abs(p.z) <= 0.50001 && abs(p.z) >= 0.4999)
     {
-        return texture(sampler, p.xy * scale);
+        uv = p.xy;
     }
     else if(abs(p.x) <= 0.50001 && abs(p.x) >= 0.4999)
     {
-        return texture(sampler, p.yz* scale);
+        uv = p.yz;
     }
     else 
     {
-        return texture(sampler, p.xz* scale);
+        uv = p.xz;
     }
+
+    uv += 0.5;
+    
+    if(is_shader_toy)
+    {
+        //map from 64x64 to 16x16
+        uv *= 0.25;
+    }
+
+    //quick lods    
+    if(hit.distance > fog_start)
+    {
+        //
+        uv *= 0.5;
+    }
+    if(hit.distance > 100.0f)
+    {
+        uv *= 0.5;
+    }
+    ivec2 texture_size = textureSize(sampler, 0);
+    ivec2 coord = ivec2(floor(uv * vec2(texture_size)));
+    
+    return texelFetch(sampler, coord, 0);
 }
+
 
 vec3 world_point_from_intersection( in Ray ray, in float depth)
 {
@@ -493,14 +525,49 @@ RaycastHit raycast_voxels(in Ray ray, int ignoreMask)
     return hit;
 }
 
+//maps white noise value to a snow color
+vec4 color_snow(float value)
+{
+    //colors picked from official snow cube
+    vec4 snow_0 = vec4(222.0/255.0, 238.0/255.0, 238.0/255.0, 1.0);
+    vec4 snow_1 = vec4(233.0/255.0, 250.0/255.0, 250.0/255.0, 1.0);
+    vec4 snow_2 = vec4(250.0/255.0, 250.0/255.0, 250.0/255.0, 1.0);
+    return value < 0.33f ? snow_0 : (value < 0.66f ? snow_1 : snow_2);
+}
+
+//maps white noise value to a snow color
+vec4 color_ground(float value)
+{
+    vec4 stone = vec4(108.0/255.0, 108.0/255.0, 108.0/255.0, 1.0);
+    vec4 brown_0 = vec4(54.0/255.0, 37.0/255.0, 25.0/255.0, 1.0);
+    vec4 brown_1 = vec4(74.0/255.0, 52.0/255.0, 35.0/255.0, 1.0);
+    vec4 brown_2 = vec4(148.0/255.0, 106.0/255.0, 74.0/255.0, 1.0);
+    vec4 brown_3 = vec4(120.0/255.0, 86.0/255.0, 59.0/255.0, 1.0);
+    return value < 0.05 ? stone : value < .25 ? brown_0 : value < 0.50 ? brown_1 : value < 0.75 ? brown_2 : brown_3;
+}
 
 vec4 color_tundra(in RaycastHit hit)
 {
+    //begin snow at local_y > snow_begin
+    float snow_begin = .25f;
+    float mix = 0.05f;
+
     float value = sample_cube(iChannel0, hit).r;
-    vec4 ambient;
-    vec4 ice_blue = vec4(0.671, 0.89, 1.0, 1.0);
-    vec4 white = vec4(1.0, 1.0, 1.0, 1.0);
-    return mix(white, ice_blue, value);
+    
+    float local_y = (hit.point - hit.cube.pos).y;
+
+    if(local_y > snow_begin)
+    {
+        return color_snow(value);
+    }
+    else if(local_y > snow_begin - mix)
+    {
+        //quick mix
+        return value > 0.66f ? color_ground(value) : color_snow(value);
+    }
+    else{
+        return color_ground(value);
+    }
 }
 
 vec4 get_biome_ambient(in RaycastHit hit)
@@ -516,7 +583,7 @@ vec4 get_biome_ambient(in RaycastHit hit)
     if(hit.cube.type == DEFAULT)
     {
         float value = sample_cube(iChannel0, hit).r;
-        ambient = vec4(0.58, 0.29, 0.0, 1.0) * value;
+        ambient = color_ground(value);
     }
     else if(hit.cube.type == DESERT)
     {
@@ -525,10 +592,7 @@ vec4 get_biome_ambient(in RaycastHit hit)
     }        
     else if(hit.cube.type == TUNDRA)
     {
-        float value = sample_cube(iChannel0, hit).r;    
-        vec4 ice_blue = vec4(0.671, 0.89, 1.0, 1.0);
-        vec4 white = vec4(1.0, 1.0, 1.0, 1.0);
-        ambient = mix(white, ice_blue, value);
+        ambient = color_tundra(hit);
     }
     else if(hit.cube.type == CAVE)
     {
