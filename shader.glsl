@@ -65,7 +65,7 @@ bool is_day = false;
 float sky_brightness = 0.0;
 float max_terrain_height = 45.0f;
 float terrain_frequency = 0.02f;
-float water_height = 20.0f;
+float water_height = 20.1f;
 float water_depth = 5.0f;
 float reflection_strength = 0.1f;
 int max_voxel_steps = 1025;
@@ -107,7 +107,7 @@ float intersect_cube(in Ray ray, in Cube cube)
     {
         return -1.0;
     }
-    
+
     return tclose;
 }
 
@@ -166,7 +166,9 @@ vec4 sample_cube(in sampler2D sampler, in RaycastHit hit)
     }
 
     uv += 0.5;
-    
+    uv = clamp(uv, vec2(0.0), vec2(1.0));
+
+
     if(is_shader_toy)
     {
         //map from 64x64 to 16x16
@@ -495,7 +497,25 @@ RaycastHit raycast_voxels(in Ray ray, int ignoreMask)
             hit.cube.pos = vec3(voxel) + vec3(0.5);
             hit.distance = intersect_cube(ray, hit.cube);
             hit.point = world_point_from_intersection(ray, hit.distance);
+            hit.point = hit.cube.pos + clamp(hit.point - hit.cube.pos,
+                                 vec3(-0.5), vec3(0.5));
+
             hit.normal = normal_cube(hit.cube, hit.point);
+            // choose face via normal
+            vec3 n  = hit.normal;
+            vec3 an = abs(n);
+            vec3 local = hit.point - hit.cube.pos;
+
+            if (an.x > an.y && an.x > an.z) {
+                local.x = 0.5 * sign(n.x);   // left/right face
+            } else if (an.y > an.x && an.y > an.z) {
+                local.y = 0.5 * sign(n.y);   // bottom/top face
+            } else {
+                local.z = 0.5 * sign(n.z);   // front/back face
+            }
+
+            hit.point = hit.cube.pos + local;
+
             hit.hit = true;
             return hit;
         }
