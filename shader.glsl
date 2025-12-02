@@ -550,6 +550,16 @@ vec4 color_dark_leaves(float value)
     return value < 0.5f ? leaves_0 : leaves_1;   
 }
 
+//maps green noise value to a grass color
+vec4 color_grass(float value)
+{
+    //colors picked from official grass cube
+    vec4 grass_0 = vec4(0.22, 0.30, 0.14, 1.0);
+    vec4 grass_1 = vec4(0.30, 0.42, 0.20, 1.0);
+    vec4 grass_2 = vec4(0.42, 0.55, 0.30, 1.0);
+    return value < 0.33f ? grass_0 : (value < 0.66f ? grass_1 : grass_2);
+}
+
 //maps white noise value to a snow color
 vec4 color_ground(float value)
 {
@@ -559,6 +569,17 @@ vec4 color_ground(float value)
     vec4 brown_2 = vec4(148.0/255.0, 106.0/255.0, 74.0/255.0, 1.0);
     vec4 brown_3 = vec4(120.0/255.0, 86.0/255.0, 59.0/255.0, 1.0);
     return value < 0.05 ? stone : value < .25 ? brown_0 : value < 0.50 ? brown_1 : value < 0.75 ? brown_2 : brown_3;
+}
+
+vec4 color_desert(float value)
+{
+    vec4 sand_0 = vec4(0.76, 0.70, 0.58, 1.0);
+    vec4 sand_1 = vec4(0.83, 0.78, 0.64, 1.0);
+    vec4 sand_2 = vec4(0.90, 0.85, 0.67, 1.0);
+    vec4 sand_3 = vec4(0.93, 0.90, 0.73, 1.0);
+    vec4 sand_4 = vec4(0.96, 0.94, 0.80, 1.0);
+    return value < 0.05 ? sand_0 : value < 0.25 ? sand_1 :value < 0.50 ? sand_2 : value < 0.75 ? sand_3 : sand_4;
+
 }
 
 vec4 color_tundra(in RaycastHit hit)
@@ -603,6 +624,30 @@ vec4 color_tundra_tree_leaves(in RaycastHit hit)
 
 
 
+vec4 color_default(in RaycastHit hit)
+{
+    //begin grass at local_y > snow_begin
+    float grass_begin = .25f;
+    float mix = 0.05f;
+
+    float value = sample_cube(iChannel0, hit).r;
+    
+    float local_y = (hit.point - hit.cube.pos).y;
+
+    if(local_y > grass_begin)
+    {
+        return color_grass(value);
+    }
+    else if(local_y > grass_begin - mix)
+    {
+        //quick mix
+        return value > 0.66f ? color_ground(value) : color_grass(value);
+    }
+    else{
+        return color_ground(value);
+    }
+}
+
 vec4 get_biome_ambient(in RaycastHit hit)
 {
     vec4 ambient = vec4(0.0, 0.0, 0.0, 1.0);
@@ -615,13 +660,12 @@ vec4 get_biome_ambient(in RaycastHit hit)
     
     if(hit.cube.type == DEFAULT)
     {
-        float value = sample_cube(iChannel0, hit).r;
-        ambient = color_ground(value);
+        ambient = color_default(hit);
     }
     else if(hit.cube.type == DESERT)
     {
         float value = sample_cube(iChannel0, hit).r;
-        ambient = vec4(1.0, .804, .604, 1.0) * value;
+        ambient = color_desert(value);
     }        
     else if(hit.cube.type == TUNDRA)
     {
