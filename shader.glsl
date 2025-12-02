@@ -525,6 +525,13 @@ RaycastHit raycast_voxels(in Ray ray, int ignoreMask)
     return hit;
 }
 
+vec4 color_dark_trunk(float value)
+{
+    vec4 brown_0 = vec4(44.0/255.0, 29.0/255.0, 15.0/255.0, 1.0);
+    vec4 brown_1 = vec4(24.0/255.0, 14.0/255.0, 5.0/255.0, 1.0);
+    vec4 brown_2 = vec4(39.0/255.0, 25.0/255.0, 11.0/255.0, 1.0);
+    return value < .33f ? brown_0 : value < 0.66f ? brown_1 : brown_2;
+}
 //maps white noise value to a snow color
 vec4 color_snow(float value)
 {
@@ -533,6 +540,14 @@ vec4 color_snow(float value)
     vec4 snow_1 = vec4(233.0/255.0, 250.0/255.0, 250.0/255.0, 1.0);
     vec4 snow_2 = vec4(250.0/255.0, 250.0/255.0, 250.0/255.0, 1.0);
     return value < 0.33f ? snow_0 : (value < 0.66f ? snow_1 : snow_2);
+}
+
+vec4 color_dark_leaves(float value)
+{
+    vec4 leaves_0 = vec4(33.0/255.0, 52.0/255.0, 32.0/255.0, 1.0);
+    vec4 leaves_1 = vec4(21.0/255.0, 34.0/255.0, 21.0/255.0, 1.0);
+
+    return value < 0.5f ? leaves_0 : leaves_1;   
 }
 
 //maps white noise value to a snow color
@@ -552,8 +567,7 @@ vec4 color_tundra(in RaycastHit hit)
     float snow_begin = .25f;
     float mix = 0.05f;
 
-    float value = sample_cube(iChannel0, hit).r;
-    
+    float value = sample_cube(iChannel0, hit).r;    
     float local_y = (hit.point - hit.cube.pos).y;
 
     if(local_y > snow_begin)
@@ -569,6 +583,25 @@ vec4 color_tundra(in RaycastHit hit)
         return color_ground(value);
     }
 }
+vec4 color_tundra_tree_leaves(in RaycastHit hit)
+{
+    //begin snow at local_y > snow_begin
+    float snow_begin = .25f;
+    float mix = 0.05f;
+
+    float value = sample_cube(iChannel0, hit).r;    
+    float local_y = (hit.point - hit.cube.pos).y;
+
+    if(local_y > snow_begin)
+    {
+        return color_snow(value);
+    }
+    else{
+        return color_dark_leaves(value);
+    }
+}
+
+
 
 vec4 get_biome_ambient(in RaycastHit hit)
 {
@@ -602,33 +635,12 @@ vec4 get_biome_ambient(in RaycastHit hit)
     else if(hit.cube.type == TREE_TRUNK)
     {
         float value = sample_cube(iChannel0, hit).r;
-        vec4 dark_brown = vec4(0.349, 0.2157, 0.0, 1.0);
-        vec4 light_brown = vec4(0.61, 0.376, 0, 1.0);
-        vec4 snow = vec4(1.0, 1.0, 1.0, 1.0);
-        float snow_threshold = 0.75;
-        if(value <= snow_threshold)
-        {
-            ambient = mix(dark_brown, light_brown, value / snow_threshold);
-        }
-        else{
-            ambient =  mix(light_brown, snow, (value - snow_threshold) / (1.0 - snow_threshold));
-        }
+        ambient = color_dark_trunk(value);
         
     }
     else if(hit.cube.type == TREE_LEAVES)
     {
-       float value = sample_cube(iChannel0, hit).r;
-       vec4 dark_leaves = vec4(0.0, 0.8118, 0.0549, 1.0);
-       vec4 light_leaves = vec4(0.0, 0.8118, 0.0549, 1.0);
-       vec4 snow = vec4(1.0, 1.0, 1.0, 1.0);
-       float snow_threshold = 0.1;
-       if(value <= snow_threshold)
-       {
-           ambient = mix(dark_leaves, light_leaves, value / snow_threshold);
-       }
-       else{
-           ambient =  mix(light_leaves, snow, (value - snow_threshold) / (1.0 - snow_threshold));
-       }
+       ambient = color_tundra_tree_leaves(hit);
     }
 
     return ambient;
