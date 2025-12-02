@@ -1,7 +1,4 @@
-//AI generated helper functions
-//We must write out own noise later
-
-// Simple hash: maps 2D integer coords to a random float in [0, 1)
+// maps 2D integer coords to a random float in [0, 1)
 float hash21(vec2 p) {
     // large, odd constants to scramble bits
     p = fract(p * vec2(123.34, 456.21));

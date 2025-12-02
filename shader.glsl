@@ -39,7 +39,7 @@ struct RaycastHit
     vec3 point;
     vec3 normal;
     bool hit;
-    bool maxed_out;
+     bool maxed_out;
 };
 
 int DEFAULT = 0;
