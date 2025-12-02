@@ -542,14 +542,14 @@ vec4 color_snow(float value)
     return value < 0.33f ? snow_0 : (value < 0.66f ? snow_1 : snow_2);
 }
 
-<<<<<<< HEAD
 vec4 color_dark_leaves(float value)
 {
     vec4 leaves_0 = vec4(33.0/255.0, 52.0/255.0, 32.0/255.0, 1.0);
     vec4 leaves_1 = vec4(21.0/255.0, 34.0/255.0, 21.0/255.0, 1.0);
 
     return value < 0.5f ? leaves_0 : leaves_1;   
-=======
+}
+
 //maps green noise value to a grass color
 vec4 color_grass(float value)
 {
@@ -558,7 +558,6 @@ vec4 color_grass(float value)
     vec4 grass_1 = vec4(0.30, 0.42, 0.20, 1.0);
     vec4 grass_2 = vec4(0.42, 0.55, 0.30, 1.0);
     return value < 0.33f ? grass_0 : (value < 0.66f ? grass_1 : grass_2);
->>>>>>> 73657e5 (grass + desert biome texture)
 }
 
 //maps white noise value to a snow color
