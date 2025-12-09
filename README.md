@@ -12,7 +12,7 @@ Our project is a Minecraft style procedural generation program. Our goal is to d
 
 /project-root
 │
-├── shader.glsl                # Main shader script
+├── shader.glsl                # Main shader script\n
 ├── bufferA.glsl               # Buffer for camera position
 ├── helper.glsl                # Helper method holder
 ├── noise.png                  # Noise texture for iChannel0
