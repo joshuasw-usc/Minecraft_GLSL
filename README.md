@@ -11,7 +11,6 @@ Our project is a Minecraft style procedural generation program. Our goal is to d
 ## 📁 File Structure
 
 /project-root  
-│  
 ├── shader.glsl                # Main shader script  
 ├── bufferA.glsl               # Buffer for camera position  
 ├── helper.glsl                # Helper method holder  
