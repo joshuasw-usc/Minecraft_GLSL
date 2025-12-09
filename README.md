@@ -10,15 +10,15 @@ Our project is a Minecraft style procedural generation program. Our goal is to d
 
 ## 📁 File Structure
 
-/project-root
-│
+/project-root  
+│  
 ├── shader.glsl                # Main shader script  
-├── bufferA.glsl               # Buffer for camera position
-├── helper.glsl                # Helper method holder
-├── noise.png                  # Noise texture for iChannel0
-├── WorleyNoise.png            # Noise texture for iChannel0
-├── screenshot_progress.png    # Early progress image
-└── README.md
+├── bufferA.glsl               # Buffer for camera position  
+├── helper.glsl                # Helper method holder  
+├── noise.png                  # Noise texture for iChannel0  
+├── WorleyNoise.png            # Noise texture for iChannel0  
+├── screenshot_progress.png    # Early progress image  
+└── README.md  
 
 
 ---
